@@ -1,0 +1,23 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+test('合集声明可安装的扩展入口', () => {
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+    name: string
+    bin: Record<string, string>
+    workspaces: string[]
+    pi: { extensions: string[] }
+  }
+  assert.equal(pkg.name, '@liuser/pi-atrium')
+  assert.equal(pkg.bin['pi-acp'], 'dist/index.js')
+  assert.deepEqual(pkg.workspaces, ['adapter', 'notes'])
+  assert.deepEqual(pkg.pi.extensions, ['./adapter/index.ts', './dist/pi-extension.js', './notes/src/index.ts'])
+  for (const entry of pkg.pi.extensions) {
+    assert.equal(existsSync(join(root, entry)), true, entry)
+  }
+})

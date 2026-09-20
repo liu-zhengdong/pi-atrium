@@ -1,0 +1,13 @@
+node_modules
+.dist
+.dist-cache
+*.log
+notes/.artifacts
+notes/dist
+**/.pi
+
+# ESLint cache
+.eslintcache
+
+/agentDocs
+.DS_Store
