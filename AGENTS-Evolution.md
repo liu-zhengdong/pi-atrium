@@ -1,5 +1,11 @@
 # AGENTS Evolution
 
+## 2026-09-20 · CI 安装 Chrome 再跑 CSP 浏览器测
+
+- 发生：`ui-server-browser` 在 GitHub ubuntu-latest 上超时，observer 一个请求都没有。
+- 分析：原 adapter CI 假定 runner 自带可用的 google-chrome；合集仓库没有这步，headless 进程在但页面没加载。
+- 改变：CI 用 `browser-actions/setup-chrome` 装稳定版并先核对命令。
+
 ## 2026-09-20 · notes 测试依赖根上的 Pi 包
 
 - 发生：去掉 workspaces 后 notes 测不到 `@earendil-works/pi-coding-agent`，CI 在 diagnostics/ui 失败。
