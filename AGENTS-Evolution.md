@@ -1,5 +1,11 @@
 # AGENTS Evolution
 
+## 2026-09-20 · notes 测试依赖根上的 Pi 包
+
+- 发生：去掉 workspaces 后 notes 测不到 `@earendil-works/pi-coding-agent`，CI 在 diagnostics/ui 失败。
+- 分析：notes 把 Pi 当 peer；以前靠 workspace 提升。运行时由宿主 Pi 提供，测试没有那层。
+- 改变：根 devDependencies 钉 `pi-coding-agent` / `pi-tui` 0.85.1。
+
 ## 2026-09-20 · 入库 adapter/dist
 
 - 发生：去掉 workspaces 后 CI 不再从 workspace 构建产物里拿到 `adapter/dist`，CLI 测试找不到 `mcp-bearer-store.js`。
