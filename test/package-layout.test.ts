@@ -12,8 +12,12 @@ test('合集声明可安装的扩展入口', () => {
     bin: Record<string, string>
     workspaces: string[]
     pi: { extensions: string[] }
+    dependencies: Record<string, string>
   }
   assert.equal(pkg.name, '@liuser/pi-atrium')
+  for (const dep of ['@modelcontextprotocol/client', 'yaml', 'zod']) {
+    assert.equal(typeof pkg.dependencies[dep], 'string', dep)
+  }
   assert.equal(pkg.bin['pi-acp'], 'dist/index.js')
   assert.deepEqual(pkg.workspaces, ['adapter', 'notes'])
   assert.deepEqual(pkg.pi.extensions, ['./adapter/index.ts', './dist/pi-extension.js', './notes/src/index.ts'])
