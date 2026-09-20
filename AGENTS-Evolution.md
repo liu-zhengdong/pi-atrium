@@ -1,5 +1,11 @@
 # AGENTS Evolution
 
+## 2026-09-20 · 入库 adapter/dist
+
+- 发生：去掉 workspaces 后 CI 不再从 workspace 构建产物里拿到 `adapter/dist`，CLI 测试找不到 `mcp-bearer-store.js`。
+- 分析：原 pi-mcp-adapter 就把这 42 个文件跟踪进 git；Pi 运行读的是 `adapter/index.ts`，dist 只给 CLI 和类型导出。
+- 改变：强制加入 `adapter/dist/`，CI 另构建 interactive-visualizer 示例。
+
 ## 2026-09-20 · 根包不做 workspaces
 
 - 发生：Atrium 用 `github:liu-zhengdong/pi-atrium` 安装时，npm 因根包声明了 workspaces，即使没有 prepare 也会嵌套 `npm install --include=dev`；本机 npm 12 再叠用户 `allow-scripts` 配置直接 EALLOWSCRIPTS。
