@@ -42,7 +42,7 @@ npm test
 npm run compile
 ```
 
-`npm test` 跑 ACP、adapter、notes 三套测试。`npm run validate` 含格式、类型、lint、测试和构建。修改 `src/` 后编译并核对 `dist/`。adapter 与 notes 保持各自目录内的格式和测试入口，根目录 prettier/eslint 不改它们。
+`npm ci` 之后还要 `npm ci --prefix adapter`，再 `npm test`（ACP、adapter、notes）。`npm run validate` 含格式、类型、lint、测试和构建。修改 `src/` 后编译并核对 `dist/`。根 `package.json` 不要加 `workspaces`：git 依赖会因此跑嵌套 `npm install`。adapter 与 notes 保持各自目录内的格式和测试入口，根目录 prettier/eslint 不改它们。
 
 原进程联调使用 `npm run smoke:runtime`。消息与使用说明须检查实际模型载荷和到达时序，不能以 TUI 已显示代替当前回合已可见；Pi 的 `triggerTurn:false` 忙时行为须以原生入口验证。
 

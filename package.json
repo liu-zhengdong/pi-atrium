@@ -31,10 +31,6 @@
   "bin": {
     "pi-acp": "dist/index.js"
   },
-  "workspaces": [
-    "adapter",
-    "notes"
-  ],
   "pi": {
     "extensions": [
       "./adapter/index.ts",
@@ -50,7 +46,7 @@
     "format:check": "prettier . --check",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node scripts/test.mjs && npm test -w @liuser/pi-mcp-adapter && npm test -w @liuser/pi-notes",
+    "test": "node scripts/test.mjs && npm test --prefix adapter && npm test --prefix notes",
     "test:acp": "node scripts/test.mjs",
     "smoke": "node scripts/smoke-acp.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",

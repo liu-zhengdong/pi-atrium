@@ -10,7 +10,7 @@ test('合集声明可安装的扩展入口', () => {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
     name: string
     bin: Record<string, string>
-    workspaces: string[]
+    workspaces?: string[]
     pi: { extensions: string[] }
     dependencies: Record<string, string>
   }
@@ -19,7 +19,7 @@ test('合集声明可安装的扩展入口', () => {
     assert.equal(typeof pkg.dependencies[dep], 'string', dep)
   }
   assert.equal(pkg.bin['pi-acp'], 'dist/index.js')
-  assert.deepEqual(pkg.workspaces, ['adapter', 'notes'])
+  assert.equal(pkg.workspaces, undefined)
   assert.deepEqual(pkg.pi.extensions, ['./adapter/index.ts', './dist/pi-extension.js', './notes/src/index.ts'])
   for (const entry of pkg.pi.extensions) {
     assert.equal(existsSync(join(root, entry)), true, entry)

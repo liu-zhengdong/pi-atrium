@@ -1,5 +1,11 @@
 # AGENTS Evolution
 
+## 2026-09-20 · 根包不做 workspaces
+
+- 发生：Atrium 用 `github:liu-zhengdong/pi-atrium` 安装时，npm 因根包声明了 workspaces，即使没有 prepare 也会嵌套 `npm install --include=dev`；本机 npm 12 再叠用户 `allow-scripts` 配置直接 EALLOWSCRIPTS。
+- 分析：合集是一个可安装包，adapter/notes 只是目录，不是要单独发布的 workspace。嵌套安装既慢又脆。
+- 改变：去掉根 `workspaces`。开发时 adapter 测试用 `npm ci --prefix adapter`。
+
 ## 2026-09-20 · 独立仓 pi-atrium 三合一
 
 - 发生：用户确认 Pi 侧（ACP、MCP 代理、notes）收为独立仓，供个人 TUI `pi install git:` 与 Atrium git 依赖共用；`pi install` 只认仓根，不能装 atrium 子目录。
