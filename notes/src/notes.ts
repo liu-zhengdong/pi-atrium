@@ -9,13 +9,11 @@ export interface Metadata {
   defaultopen: boolean;
   keywords?: string[];
   description?: string;
-  purpose?: string;
 }
 export interface Note {
   name: string;
   path: string;
   description?: string;
-  purpose?: string;
   body?: string;
   error?: string;
 }
@@ -115,11 +113,11 @@ export function parseMetadata(source: string): Metadata {
       ...new Set(value.map((word: string) => word.trim().toLowerCase())),
     ];
   }
-  for (const key of ["description", "purpose"] as const) {
-    const value = fields.get(key);
-    if (value == null) continue;
-    if (typeof value !== "string") throw new Error(`${key} 必须是文本`);
-    if (value.trim()) result[key] = value.trim();
+  const description = fields.get("description");
+  if (description != null) {
+    if (typeof description !== "string")
+      throw new Error("description 必须是文本");
+    if (description.trim()) result.description = description.trim();
   }
   return result;
 }
@@ -135,10 +133,8 @@ export function renderNote(note: Note): string {
   const lines = [full ? `### ${note.name}` : `- ${note.name}`];
   const indent = full ? "" : "  ";
   lines.push(field("路径", note.path, indent));
-  if (note.purpose) lines.push(field("定位", note.purpose, indent));
+  if (note.description) lines.push(field("描述", note.description, indent));
   if (full) lines.push("", note.body!);
-  else if (note.description)
-    lines.push(field("描述", note.description, indent));
   if (note.error) lines.push(field("未展开", note.error, indent));
   return lines.join("\n");
 }
@@ -391,7 +387,6 @@ export class NotesLoader {
           const metadata = await readHeader(file, before.size);
           note = {
             ...note,
-            purpose: metadata.purpose,
             description: metadata.description,
           };
           if (metadata.defaultopen)

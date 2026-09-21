@@ -22,8 +22,7 @@ pi install npm:@liuser/pi-notes
 
 ```yaml
 ---
-description: 用户的协作偏好与表达习惯。
-purpose: >-
+description: >-
   这是对用户的持续建模，用于理解用户并辅助沟通与判断。
   结合当前情境使用，区分明确偏好与推断，当前明确要求优先。
 defaultopen: true
@@ -35,11 +34,10 @@ defaultopen: true
 | 字段 | 作用 | 未填写时 |
 | --- | --- | --- |
 | `description` | 说明笔记内容，以及何时值得读取 | 保留文件名和路径 |
-| `purpose` | 说明笔记对 AI 的价值和使用方式 | 省略定位说明 |
 | `defaultopen` | `true` 注入完整正文；`false` 只提供摘要 | `false` |
 | `keywords` | 字符串列表；深层笔记命中时提供摘要入口 | 不参与关键词提醒 |
 
-`purpose` 在两种模式下都提供。`defaultopen` 使用 YAML 布尔值，不要写成带引号的 `"false"` 或 `"true"`。普通 Obsidian 属性如 `tags`、`aliases` 可以继续保留。
+`defaultopen` 使用 YAML 布尔值，不要写成带引号的 `"false"` 或 `"true"`。普通 Obsidian 属性如 `tags`、`aliases` 可以继续保留。
 
 示例笔记见 [`examples/vault/`](examples/vault/)，完整注入版式见 [设计说明](DESIGN.md#默认上下文示意)。
 
@@ -51,12 +49,11 @@ defaultopen: true
 ---
 keywords: [字体, font-family, 排版]
 description: Web 项目的统一字体栈与使用约定。
-purpose: 设置或调整 Web 字体时参考。
 ---
 ```
 
 - 匹配用户输入、模型回复和渠道实际提供的可见思考文本，按字面短语匹配，英文大小写不敏感；不是语义搜索或正则表达式。
-- 用户输入命中时，本次请求提供笔记名、路径、定位和摘要；模型输出命中则留到下一次正常调用，包括工具后续轮次。最终回复之后不会因此额外续跑。
+- 用户输入命中时，本次请求提供笔记名、路径和摘要；模型输出命中则留到下一次正常调用，包括工具后续轮次。最终回复之后不会因此额外续跑。
 - 全局目录和受信任的 `.note` 子目录都在范围内。根层已展示的笔记不重复提醒；深层笔记即使 `defaultopen: true` 也只提供摘要，全文由 AI 按需读取。
 - 已在当前上下文保留的提醒不重复追加。恢复、分支与压缩会重新对账；提醒移出上下文后，新的命中可以再次提供。工具结果、工具参数和插件注入文本不触发提醒。
 

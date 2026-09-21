@@ -24,7 +24,7 @@ try {
       Array.from({ length: 50 }, (_, i) =>
         writeFile(
           join(root, `${String(start + i).padStart(4, "0")}.md`),
-          "---\ndescription: A reference note to read on demand.\npurpose: Background context.\ndefaultopen: false\n---\n" +
+          "---\ndescription: A reference note to read on demand.\ndefaultopen: false\n---\n" +
             "body".repeat(2048),
         ),
       ),

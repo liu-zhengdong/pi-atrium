@@ -64,7 +64,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
 test("recursive summaries only, root dedup, hidden/symlink/bad metadata excluded", async (t) => {
   const { directory, deep, config, index, refresh } = await fixture(t);
   const note =
-    "---\nkeywords: [字体, 'font-family', '[regex].*']\ndefaultopen: true\ndescription: FONT_GUIDANCE\npurpose: SETTING_FONTS\n---\n";
+    "---\nkeywords: [字体, 'font-family', '[regex].*']\ndefaultopen: true\ndescription: FONT_GUIDANCE\n---\n";
   await writeFile(join(config.directory, "root.md"), note + "ROOT_BODY");
   await writeFile(join(deep, "fonts.md"), note + "PRIVATE_BODY".repeat(100000));
   await writeFile(join(deep, ".hidden.md"), note);

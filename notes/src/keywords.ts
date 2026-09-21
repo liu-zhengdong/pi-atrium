@@ -103,9 +103,8 @@ export class KeywordIndex {
               !word.trim() ||
               word !== word.trim().toLowerCase(),
           ) ||
-          [note.description, note.purpose].some(
-            (value) => value !== undefined && typeof value !== "string",
-          ))
+          (note.description !== undefined &&
+            typeof note.description !== "string"))
       )
         throw new Error("无效的缓存笔记");
       parsed.remember(path, {
@@ -116,7 +115,6 @@ export class KeywordIndex {
           path,
           keywords: note.keywords,
           description: note.description,
-          purpose: note.purpose,
         },
       });
     }
@@ -238,7 +236,6 @@ export class KeywordIndex {
                   path,
                   keywords: metadata.keywords,
                   description: metadata.description,
-                  purpose: metadata.purpose,
                 };
               if (
                 signature(before) !==

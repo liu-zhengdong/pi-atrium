@@ -41,7 +41,7 @@ await writeFile(
   JSON.stringify(before, null, 2),
 );
 const note = (key: string, summary: string) =>
-  `---\nkeywords: [${key}]\ndescription: ${summary}\npurpose: Reference for ${key}\ndefaultopen: true\n---\nPRIVATE_${summary}\n`;
+  `---\nkeywords: [${key}]\ndescription: ${summary}\ndefaultopen: true\n---\nPRIVATE_${summary}\n`;
 await writeFile(
   join(vault, "root.md"),
   "---\nkeywords: [root-key]\ndescription: ROOT_GUIDE\n---\nPRIVATE_ROOT\n",

@@ -37,11 +37,11 @@ await writeFile(
 );
 await writeFile(
   join(vault, "USER.md"),
-  "---\npurpose: USER_PURPOSE\ndefaultopen: true\n---\nFULL_ALPHA\n",
+  "---\ndescription: USER_DESCRIPTION\ndefaultopen: true\n---\nFULL_ALPHA\n",
 );
 await writeFile(
   join(vault, "参考.md"),
-  "---\npurpose: REFERENCE_PURPOSE\ndescription: SUMMARY_ALPHA\ndefaultopen: false\n---\nHIDDEN_BODY\n",
+  "---\ndescription: SUMMARY_ALPHA\ndefaultopen: false\n---\nHIDDEN_BODY\n",
 );
 await writeFile(
   join(vault, "项目", "深层", "任务.md"),
@@ -164,8 +164,7 @@ try {
   for (const text of [
     "ORIGINAL_CONTEXT",
     "FULL_ALPHA",
-    "USER_PURPOSE",
-    "REFERENCE_PURPOSE",
+    "USER_DESCRIPTION",
     "SUMMARY_ALPHA",
     join(vault, "项目"),
   ])
@@ -176,7 +175,7 @@ try {
   assert.equal(system().split("FULL_ALPHA").length - 1, 1);
   await writeFile(
     join(vault, "USER.md"),
-    "---\npurpose: USER_PURPOSE\ndefaultopen: true\n---\nFULL_BETA\n",
+    "---\ndescription: USER_DESCRIPTION\ndefaultopen: true\n---\nFULL_BETA\n",
   );
   await writeFile(
     join(vault, "新增.md"),
@@ -199,7 +198,7 @@ try {
     assert.ok(!system().includes(text));
   await rpc.request("new_session");
   await rpc.prompt("new session");
-  assert.ok(system().includes("REFERENCE_PURPOSE"));
+  assert.ok(system().includes("SUMMARY_ALPHA"));
   const other = join(work, "other");
   await mkdir(other);
   await writeFile(
@@ -289,7 +288,7 @@ try {
           "local package install",
           "real Pi RPC command dispatch",
           "preview/outbound equality",
-          "full and summary purpose",
+          "full and summary description",
           "root-only discovery",
           "refresh and no duplication",
           "malformed input rejection",
