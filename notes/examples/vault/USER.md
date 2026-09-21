@@ -1,6 +1,5 @@
 ---
-description: 用户的协作偏好与表达习惯。
-purpose: >-
+description: >-
   这是对用户的持续建模，用于理解用户并辅助沟通与判断。
   结合当前情境使用，区分明确偏好与推断，当前明确要求优先。
 defaultopen: true

@@ -50,7 +50,7 @@ function fixture(limit = 10000) {
     path: "/vault/deep/b.md",
     name: "b.md",
     keywords: ["beta"],
-    purpose: "B_PURPOSE",
+    description: "B_HINT",
   });
   const reminders = new Reminders(index);
   reminders.configure(undefined, limit);
@@ -102,7 +102,7 @@ test("user keywords affect same request; actual context dedup and no injected-co
   const first = f.context([user("ALPHA alpha")]);
   assert.equal(notes(first.messages).length, 1);
   assert.match(JSON.stringify(first.messages), /A_HINT beta/);
-  assert.ok(!JSON.stringify(first.messages).includes("B_PURPOSE"));
+  assert.ok(!JSON.stringify(first.messages).includes("B_HINT"));
   f.finish(assistant("alpha"));
   const journalLength = f.journal.length;
   f.reminders.captureUser(user("alpha"));
