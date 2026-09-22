@@ -54,6 +54,8 @@ export type RolloverStats = {
   cutIndex: number
   /** 是否带上了上一次交接的接续正文（没有活块时的历史保底） */
   inheritedCarry: boolean
+  /** 带过去的 Pi 原生压缩／分支摘要段数 */
+  nativeSummaries: number
   /** 丢弃的重复扩展注入数量 */
   droppedDuplicateInjections: number
   /** 丢弃的孤儿 toolResult 数量 */
@@ -276,9 +278,26 @@ export function planRollover(branch: SessionEntry[], blocks: SummaryBlock[], opt
       tailBytes: repaired.reduce((total, entry) => total + entryBytes(entry), 0),
       cutIndex,
       inheritedCarry: inherited.length > 0,
+      nativeSummaries: native.length,
       droppedDuplicateInjections,
       droppedOrphanResults,
       strippedToolCalls
     }
   }
+}
+
+export function humanBytes(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${(bytes / 1024).toFixed(1)}KB`
+}
+
+/** 确认框里「带什么过去」那一句；说的东西与真正装进 carry 的组成一致。 */
+export function describeCarried(stats: RolloverStats): string {
+  const parts = [
+    stats.blocks > 0 ? `${stats.blocks} 个摘要块` : '',
+    stats.nativeSummaries > 0 ? `${stats.nativeSummaries} 段 Pi 原生摘要` : '',
+    stats.inheritedCarry ? '上一次的接续正文' : ''
+  ].filter(Boolean)
+  const tail = `最近 ${stats.tailEntries} 条原文（${humanBytes(stats.tailBytes)}）`
+  if (parts.length === 0) return `新会话只有${tail}，切点之前的历史留在旧文件里。`
+  return `新会话将带上${parts.join('、')}（${humanBytes(stats.carryBytes)}）和${tail}。`
 }

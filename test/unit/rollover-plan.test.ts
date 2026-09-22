@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { planRollover, type SessionEntry, type SummaryBlock } from '../../src/rollover/plan.js'
+import { planRollover, describeCarried, type SessionEntry, type SummaryBlock } from '../../src/rollover/plan.js'
 
 let seq = 0
 function user(text: string): SessionEntry {
@@ -225,4 +225,35 @@ test('Pi 原生压缩与分支摘要也带进 carry 正文', () => {
   assert.match(plan.carryText, /更早的压缩摘要/)
   assert.match(plan.carryText, /被放弃分支的摘要/)
   assert.ok(plan.carryText.indexOf('更早的压缩摘要') < plan.carryText.indexOf('b1'))
+})
+
+test('确认框说清带过去的东西，不把 0 个摘要块和它的体积并列', () => {
+  const withBlocks = planRollover([user('一轮'), assistant()], [block('b1', 1), block('b2', 2)], options)
+  assert.match(describeCarried(withBlocks.stats), /新会话将带上2 个摘要块（/)
+  assert.equal(describeCarried(withBlocks.stats).includes('Pi 原生摘要'), false)
+
+  const consecutive = planRollover([carryEntry('carry-1', '上一代的接续正文'), user('一轮'), assistant()], [], {
+    ...options,
+    tailBudgetBytes: 1
+  })
+  const line = describeCarried(consecutive.stats)
+  assert.match(line, /上一次的接续正文/)
+  assert.equal(line.includes('0 个摘要块'), false)
+})
+
+test('原生摘要计入组成说明与 stats', () => {
+  const branch: SessionEntry[] = [
+    { type: 'compaction', id: 'cp1', summary: '更早的压缩摘要' },
+    { type: 'branch_summary', id: 'bs1', summary: '被放弃分支的摘要' },
+    user('一轮')
+  ]
+  const plan = planRollover(branch, [], options)
+  assert.equal(plan.stats.nativeSummaries, 2)
+  assert.match(describeCarried(plan.stats), /2 段 Pi 原生摘要/)
+})
+
+test('没有任何可继承内容时，确认框只说剩下原文', () => {
+  const plan = planRollover([user('一轮'), assistant()], [], options)
+  assert.equal(describeCarried(plan.stats).startsWith('新会话只有最近'), true)
+  assert.match(describeCarried(plan.stats), /切点之前的历史留在旧文件里/)
 })

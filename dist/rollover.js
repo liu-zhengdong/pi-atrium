@@ -211,11 +211,25 @@ function planRollover(branch, blocks, options) {
       tailBytes: repaired.reduce((total, entry) => total + entryBytes(entry), 0),
       cutIndex,
       inheritedCarry: inherited.length > 0,
+      nativeSummaries: native.length,
       droppedDuplicateInjections,
       droppedOrphanResults,
       strippedToolCalls
     }
   };
+}
+function humanBytes(bytes) {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${(bytes / 1024).toFixed(1)}KB`;
+}
+function describeCarried(stats) {
+  const parts = [
+    stats.blocks > 0 ? `${stats.blocks} \u4E2A\u6458\u8981\u5757` : "",
+    stats.nativeSummaries > 0 ? `${stats.nativeSummaries} \u6BB5 Pi \u539F\u751F\u6458\u8981` : "",
+    stats.inheritedCarry ? "\u4E0A\u4E00\u6B21\u7684\u63A5\u7EED\u6B63\u6587" : ""
+  ].filter(Boolean);
+  const tail = `\u6700\u8FD1 ${stats.tailEntries} \u6761\u539F\u6587\uFF08${humanBytes(stats.tailBytes)}\uFF09`;
+  if (parts.length === 0) return `\u65B0\u4F1A\u8BDD\u53EA\u6709${tail}\uFF0C\u5207\u70B9\u4E4B\u524D\u7684\u5386\u53F2\u7559\u5728\u65E7\u6587\u4EF6\u91CC\u3002`;
+  return `\u65B0\u4F1A\u8BDD\u5C06\u5E26\u4E0A${parts.join("\u3001")}\uFF08${humanBytes(stats.carryBytes)}\uFF09\u548C${tail}\u3002`;
 }
 
 // src/rollover/sidecar.ts
@@ -242,9 +256,6 @@ function readActiveBlocks(sessionFile) {
 }
 
 // src/rollover/extension.ts
-function humanBytes(bytes) {
-  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${(bytes / 1024).toFixed(1)}KB`;
-}
 function sessionBytes(sessionFile) {
   try {
     return statSync(sessionFile).size;
@@ -255,14 +266,15 @@ function sessionBytes(sessionFile) {
 function describe(plan, sessionFile) {
   const { stats } = plan;
   const notes = [
-    stats.blocks === 0 && !stats.inheritedCarry ? "\u6CE8\u610F\uFF1A\u6CA1\u6709\u53EF\u7EE7\u627F\u7684\u6458\u8981\uFF0C\u5207\u70B9\u4E4B\u524D\u7684\u5386\u53F2\u53EA\u4F1A\u7559\u5728\u65E7\u6587\u4EF6\u91CC\uFF0C\u4E0D\u8FDB\u5165\u65B0\u4F1A\u8BDD\u4E0A\u4E0B\u6587\u3002" : "\u65E7\u4F1A\u8BDD\u6587\u4EF6\u539F\u6837\u4FDD\u7559\uFF0C/resume \u4ECD\u53EF\u56DE\u53BB\u3002",
+    "\u65E7\u4F1A\u8BDD\u6587\u4EF6\u539F\u6837\u4FDD\u7559\uFF0C/resume \u4ECD\u53EF\u56DE\u53BB\u3002",
     stats.inheritedCarry ? "\u8FD8\u6CA1\u6709\u65B0\u7684\u538B\u7F29\u5757\uFF0C\u4E0A\u4E00\u6B21\u4EA4\u63A5\u7684\u63A5\u7EED\u6B63\u6587\u539F\u6837\u5F80\u4E0B\u4F20\u3002" : "",
+    stats.blocks === 0 && stats.nativeSummaries === 0 && !stats.inheritedCarry ? "\u6CE8\u610F\uFF1A\u6CA1\u6709\u53EF\u7EE7\u627F\u7684\u6458\u8981\uFF0C\u5207\u70B9\u4E4B\u524D\u7684\u5386\u53F2\u53EA\u4F1A\u7559\u5728\u65E7\u6587\u4EF6\u91CC\u3002" : "",
     stats.droppedOrphanResults + stats.strippedToolCalls > 0 ? `\u4FEE\u6389\u8DE8\u5207\u70B9\u7684\u5DE5\u5177\u8C03\u7528\uFF1A\u4E22\u5F03 ${stats.droppedOrphanResults} \u6761\u5B64\u513F\u7ED3\u679C\uFF0C\u5265\u6389 ${stats.strippedToolCalls} \u4E2A\u60AC\u7A7A\u8C03\u7528\u3002` : "",
     stats.droppedDuplicateInjections > 0 ? `\u5408\u5E76 ${stats.droppedDuplicateInjections} \u6761\u91CD\u590D\u7684\u6269\u5C55\u6CE8\u5165\uFF0C\u6BCF\u79CD\u5185\u5BB9\u53EA\u7559\u6700\u540E\u4E00\u6761\u3002` : ""
   ].filter(Boolean);
   return [
     `\u5F53\u524D\u4F1A\u8BDD ${humanBytes(sessionBytes(sessionFile))}\uFF0C\u5171 ${stats.branchEntries} \u6761\u3002`,
-    `\u65B0\u4F1A\u8BDD\u5C06\u5E26\u4E0A ${stats.blocks} \u4E2A\u6458\u8981\u5757\uFF08${humanBytes(stats.carryBytes)}\uFF09\u548C\u6700\u8FD1 ${stats.tailEntries} \u6761\u539F\u6587\uFF08${humanBytes(stats.tailBytes)}\uFF09\u3002`,
+    describeCarried(stats),
     ...notes
   ].join("\n").trim();
 }
