@@ -166,6 +166,49 @@ test('重复注入不占尾巴字节预算', () => {
   assert.equal(plan.tail.filter(entry => entry.type === 'custom_message').length, 1)
 })
 
+function carryEntry(id: string, text: string): SessionEntry {
+  return { type: 'custom_message', id, customType: 'atrium-rollover-carry', content: text, display: true }
+}
+
+test('没有活块时把上一次的接续正文继续往下传', () => {
+  // 刚交接完就再次交接：继承来的块全被置为 inactive，切点之前的历史只能靠这一段保住。
+  const branch = [carryEntry('carry-1', '上一代的接续正文'), user('一轮'), assistant(), user('二轮'), assistant()]
+  const plan = planRollover(branch, [], { ...options, tailBudgetBytes: 1 })
+  assert.match(plan.carryText, /上一次交接带过来的上下文/)
+  assert.match(plan.carryText, /上一代的接续正文/)
+})
+
+test('已经有活块时不重复叠加上一次的接续正文', () => {
+  const branch = [carryEntry('carry-1', '上一代的接续正文'), user('一轮'), assistant()]
+  const plan = planRollover(branch, [block('b1', 1)], { ...options, tailBudgetBytes: 1 })
+  assert.equal(plan.carryText.includes('上一代的接续正文'), false)
+  assert.match(plan.carryText, /b1/)
+})
+
+test('上一次的接续正文已落在尾巴里时不重复带入', () => {
+  const branch = [user('一轮'), carryEntry('carry-1', '上一代的接续正文'), assistant()]
+  const plan = planRollover(branch, [], options)
+  assert.equal(plan.carryText.includes('上一代的接续正文'), false)
+  assert.equal(
+    plan.tail.some(entry => entry.id === 'carry-1'),
+    true,
+    '它作为普通条目留在尾巴里'
+  )
+})
+
+test('后面还有更新的接续正文时只传最近那一条', () => {
+  const branch = [
+    carryEntry('carry-1', '第一代正文'),
+    user('一轮'),
+    carryEntry('carry-2', '第二代正文'),
+    user('二轮'),
+    assistant()
+  ]
+  const plan = planRollover(branch, [], { ...options, tailBudgetBytes: 1 })
+  assert.match(plan.carryText, /第二代正文/)
+  assert.equal(plan.carryText.includes('第一代正文'), false)
+})
+
 test('Pi 原生压缩与分支摘要也带进 carry 正文', () => {
   const branch: SessionEntry[] = [
     { type: 'compaction', id: 'cp1', summary: '更早的压缩摘要' },

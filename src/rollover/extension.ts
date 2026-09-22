@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs'
 import { readRolloverConfig } from './config.js'
-import { planRollover, type RolloverPlan, type SessionEntry, type SessionMessage } from './plan.js'
+import { planRollover, CARRY_CUSTOM_TYPE, type RolloverPlan, type SessionEntry, type SessionMessage } from './plan.js'
 import { readActiveBlocks } from './sidecar.js'
 
 /** 新会话的写入面，只用到追加上下文可见条目的两个方法。 */
@@ -75,11 +75,8 @@ function describe(plan: RolloverPlan, sessionFile: string): string {
 }
 
 async function writePlan(sessionManager: AppendTarget, plan: RolloverPlan): Promise<void> {
-  sessionManager.appendMessage({
-    role: 'user',
-    content: [{ type: 'text', text: plan.carryText }],
-    timestamp: Date.now()
-  })
+  // 用 custom_message 而不是普通用户消息：模型照常看到，但下一代交接能认出这是接续上下文。
+  sessionManager.appendCustomMessageEntry(CARRY_CUSTOM_TYPE, [{ type: 'text', text: plan.carryText }], true)
   for (const entry of plan.tail) {
     if (entry.type === 'message' && entry.message) sessionManager.appendMessage(entry.message)
     else if (entry.type === 'custom_message' && typeof entry.customType === 'string')

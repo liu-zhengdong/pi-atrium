@@ -75,6 +75,9 @@ export type PlanOptions = {
   tailBudgetBytes: number
 }
 
+/** 接续消息的 customType，让下一代交接能认出上一代带过来的上下文。 */
+export const CARRY_CUSTOM_TYPE = 'atrium-rollover-carry'
+
 /** 进入模型上下文的 entry 类型；其余（扩展记账、模型切换、标签等）不带进新会话。 */
 const CONTEXT_ENTRY_TYPES = new Set(['message', 'custom_message'])
 
@@ -190,6 +193,32 @@ function blockSection(block: SummaryBlock): string {
   return `### ${block.blockId}${topic}${tier}\n${block.summary}`
 }
 
+function entryText(entry: SessionEntry): string {
+  if (typeof entry.content === 'string') return entry.content
+  if (!Array.isArray(entry.content)) return ''
+  return entry.content.map(item => (typeof item.text === 'string' ? item.text : '')).join('')
+}
+
+/**
+ * 上一代交接带过来的上下文。
+ *
+ * billion-context 会把继承来的块全部置为 inactive（它们覆盖的消息已不在新会话里），
+ * 所以刚交接完就再次交接时一个活块都没有。这种时候把上一代的接续正文原样往下传，
+ * 否则切点之前的历史会静静消失。已经有活块时不传：那些块已经是它的压缩版，
+ * 再叠一份只会逐代变胖。
+ */
+function inheritedCarry(branch: SessionEntry[], tail: SessionEntry[]): string[] {
+  const carried = new Set(tail.map(entry => entry.id))
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i]
+    if (entry.type !== 'custom_message' || entry.customType !== CARRY_CUSTOM_TYPE) continue
+    if (carried.has(entry.id)) return []
+    const text = entryText(entry)
+    return text ? [`### 上一次交接带过来的上下文\n${text}`] : []
+  }
+  return []
+}
+
 /** 旧分支上 Pi 原生压缩／分支摘要的正文，否则这些内容在交接后无处可寻。 */
 function nativeSummaries(branch: SessionEntry[]): string[] {
   return branch
@@ -211,7 +240,11 @@ export function planRollover(branch: SessionEntry[], blocks: SummaryBlock[], opt
   const cutIndex = findCutIndex(contextual, options.tailBudgetBytes)
   const { repaired, droppedOrphanResults, strippedToolCalls } = repairToolPairs(contextual.slice(cutIndex))
 
-  const sections = [...nativeSummaries(branch), ...ordered.map(blockSection)]
+  const sections = [
+    ...(ordered.length === 0 ? inheritedCarry(branch, repaired) : []),
+    ...nativeSummaries(branch),
+    ...ordered.map(blockSection)
+  ]
   const carryText = [
     '# 会话接续上下文',
     '',

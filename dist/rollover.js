@@ -67,6 +67,7 @@ function readRolloverConfig(cwd) {
 }
 
 // src/rollover/plan.ts
+var CARRY_CUSTOM_TYPE = "atrium-rollover-carry";
 var CONTEXT_ENTRY_TYPES = /* @__PURE__ */ new Set(["message", "custom_message"]);
 function dropDuplicateInjections(entries) {
   const keys = entries.map(
@@ -150,6 +151,23 @@ function blockSection(block) {
   return `### ${block.blockId}${topic}${tier}
 ${block.summary}`;
 }
+function entryText(entry) {
+  if (typeof entry.content === "string") return entry.content;
+  if (!Array.isArray(entry.content)) return "";
+  return entry.content.map((item) => typeof item.text === "string" ? item.text : "").join("");
+}
+function inheritedCarry(branch, tail) {
+  const carried = new Set(tail.map((entry) => entry.id));
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i];
+    if (entry.type !== "custom_message" || entry.customType !== CARRY_CUSTOM_TYPE) continue;
+    if (carried.has(entry.id)) return [];
+    const text = entryText(entry);
+    return text ? [`### \u4E0A\u4E00\u6B21\u4EA4\u63A5\u5E26\u8FC7\u6765\u7684\u4E0A\u4E0B\u6587
+${text}`] : [];
+  }
+  return [];
+}
 function nativeSummaries(branch) {
   return branch.filter(
     (entry) => (entry.type === "compaction" || entry.type === "branch_summary") && typeof entry.summary === "string"
@@ -165,7 +183,11 @@ function planRollover(branch, blocks, options) {
   );
   const cutIndex = findCutIndex(contextual, options.tailBudgetBytes);
   const { repaired, droppedOrphanResults, strippedToolCalls } = repairToolPairs(contextual.slice(cutIndex));
-  const sections = [...nativeSummaries(branch), ...ordered.map(blockSection)];
+  const sections = [
+    ...ordered.length === 0 ? inheritedCarry(branch, repaired) : [],
+    ...nativeSummaries(branch),
+    ...ordered.map(blockSection)
+  ];
   const carryText = [
     "# \u4F1A\u8BDD\u63A5\u7EED\u4E0A\u4E0B\u6587",
     "",
@@ -242,11 +264,7 @@ ${notes.join("\n")}` : "";
   ].join("\n").trim();
 }
 async function writePlan(sessionManager, plan) {
-  sessionManager.appendMessage({
-    role: "user",
-    content: [{ type: "text", text: plan.carryText }],
-    timestamp: Date.now()
-  });
+  sessionManager.appendCustomMessageEntry(CARRY_CUSTOM_TYPE, [{ type: "text", text: plan.carryText }], true);
   for (const entry of plan.tail) {
     if (entry.type === "message" && entry.message) sessionManager.appendMessage(entry.message);
     else if (entry.type === "custom_message" && typeof entry.customType === "string")
