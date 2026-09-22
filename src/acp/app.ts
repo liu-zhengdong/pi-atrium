@@ -11,7 +11,7 @@ import { McpConfigurationError, parseMcpServers } from '../pi-rpc/mcp-servers.js
 import { PiAcpAgent, runPromptWithCancellation } from './agent.js'
 import { ClientConnection } from './client.js'
 import { RuntimeGateway } from '../runtime/gateway.js'
-import { IDENTITY_CAPABILITY } from '../runtime/identity.js'
+import { IDENTITY_CAPABILITY, IDENTITY_MODEL_CAPABILITY } from '../runtime/identity.js'
 import { object, string, RUNTIME_CAPABILITY, runtimeMethods } from '../runtime/transport.js'
 import { SessionRepository } from './session-repository.js'
 
@@ -114,7 +114,8 @@ export function createPiAcpAgentApp(opts?: { onAgent?: (agent: PiAcpAgent | null
             ...response._meta,
             [RUNTIME_CAPABILITY]: true,
             [EVENTS_CAPABILITY]: true,
-            [IDENTITY_CAPABILITY]: true
+            [IDENTITY_CAPABILITY]: true,
+            [IDENTITY_MODEL_CAPABILITY]: true
           }
         }
       } catch (error) {
@@ -134,6 +135,14 @@ export function createPiAcpAgentApp(opts?: { onAgent?: (agent: PiAcpAgent | null
     .onRequest('_pi/identity/start', object, ctx => {
       getInitializedAgent()
       return runtimes!.start(ctx.params)
+    })
+    .onRequest('_pi/identity/models', object, ctx => {
+      getInitializedAgent()
+      return runtimes!.models(ctx.params)
+    })
+    .onRequest('_pi/identity/model', object, ctx => {
+      getInitializedAgent()
+      return runtimes!.setModel(ctx.params)
     })
     .onRequest(runtimeMethods.list, object, () => {
       getInitializedAgent()

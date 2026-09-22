@@ -1326,6 +1326,7 @@ function buildPiInvocation(command, args, opts = {}) {
 
 // src/runtime/identity.ts
 var IDENTITY_CAPABILITY = "pi-acp/identity/v1";
+var IDENTITY_MODEL_CAPABILITY = "pi-acp/identity/model/v1";
 var ENV = "PI_ACP_NAMED_OWNER";
 function parseIdentity(value) {
   if (!value || typeof value !== "object") throw new Error("Invalid named identity");
@@ -2087,6 +2088,7 @@ var PiRpcProcess = class _PiRpcProcess {
     }
     const sessionPath = params.sessionPath ?? emptySessionPath;
     if (sessionPath) args.push("--session", sessionPath);
+    if (params.model) args.push("--model", params.model);
     const cleanupEmptySession = () => {
       if (!emptySessionPath) return;
       try {
@@ -6662,6 +6664,15 @@ var ClientConnection = class {
 
 // src/runtime/gateway.ts
 import { join as join10 } from "path";
+function appliedModel(state) {
+  const value = state;
+  const provider = String(value?.model?.provider ?? "").trim();
+  const id = String(value?.model?.id ?? "").trim();
+  return {
+    model: provider && id ? `${provider}/${id}` : "",
+    thinking: typeof value?.thinkingLevel === "string" ? value.thinkingLevel : ""
+  };
+}
 var RuntimeGateway = class {
   peers = /* @__PURE__ */ new Map();
   attaching = /* @__PURE__ */ new Set();
@@ -6674,6 +6685,32 @@ var RuntimeGateway = class {
     proc.dispose();
     await proc.whenTerminated();
     return { stopped: true };
+  }
+  /** Model catalogue of a Pi this connection started; providers and credentials are per identity. */
+  async models(value) {
+    const params = object(value), proc = this.namedChildren.get(uuid(params.identityId));
+    if (!proc) throw new Error("Identity is not owned by this ACP connection");
+    const [data, state] = await Promise.all([proc.getAvailableModels(), proc.getState()]);
+    const listed = data?.models;
+    const models = (Array.isArray(listed) ? listed : []).map((entry) => {
+      const model = entry;
+      const provider = String(model.provider ?? "").trim();
+      const id = String(model.id ?? "").trim();
+      return provider && id ? { id: `${provider}/${id}`, name: String(model.name ?? id) } : null;
+    }).filter((model) => model !== null);
+    return { models, current: appliedModel(state) };
+  }
+  /** Only a Pi this connection started: an attached peer has no RPC channel to change its model. */
+  async setModel(value) {
+    const params = object(value), proc = this.namedChildren.get(uuid(params.identityId));
+    if (!proc) throw new Error("Identity is not owned by this ACP connection");
+    let state = await applySessionModel(proc, string(params.model, 200));
+    if (params.thinking !== void 0) {
+      const level = string(params.thinking, 16);
+      if (!isThinkingLevel(level)) throw new Error(`Unknown thinking level: ${level}`);
+      state = await applyThinkingLevel(proc, level);
+    }
+    return appliedModel(state);
   }
   starting = /* @__PURE__ */ new Set();
   abort = new AbortController();
@@ -6699,6 +6736,7 @@ var RuntimeGateway = class {
       agentDirectory: identity.agentDirectory,
       sessionDirectory: join10(identity.agentDirectory, "sessions"),
       sessionPath,
+      ...params.model === void 0 ? {} : { model: string(params.model, 200) },
       mcpProxyOnly: true,
       piCommand: process.env.PI_ACP_PI_COMMAND,
       signal: this.abort.signal,
@@ -6864,7 +6902,8 @@ function createPiAcpAgentApp(opts) {
           ...response._meta,
           [RUNTIME_CAPABILITY]: true,
           [EVENTS_CAPABILITY]: true,
-          [IDENTITY_CAPABILITY]: true
+          [IDENTITY_CAPABILITY]: true,
+          [IDENTITY_MODEL_CAPABILITY]: true
         }
       };
     } catch (error) {
@@ -6880,6 +6919,12 @@ function createPiAcpAgentApp(opts) {
   }).onRequest("_pi/identity/start", object, (ctx) => {
     getInitializedAgent();
     return runtimes.start(ctx.params);
+  }).onRequest("_pi/identity/models", object, (ctx) => {
+    getInitializedAgent();
+    return runtimes.models(ctx.params);
+  }).onRequest("_pi/identity/model", object, (ctx) => {
+    getInitializedAgent();
+    return runtimes.setModel(ctx.params);
   }).onRequest(runtimeMethods.list, object, () => {
     getInitializedAgent();
     return runtimes.list();

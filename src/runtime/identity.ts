@@ -23,6 +23,8 @@ type Owner = NamedIdentity & { nonce: string; launcherPid: number; childPid: num
 type Cursor = NamedIdentity & { sessionFile: string | null; runtimeId: string }
 const bindingKey = Symbol.for('@liuser/pi-acp/named-identity/v1')
 export const IDENTITY_CAPABILITY = 'pi-acp/identity/v1'
+/** Advertises `--model` on start plus `_pi/identity/model`; clients without it must not assume the model applies. */
+export const IDENTITY_MODEL_CAPABILITY = 'pi-acp/identity/model/v1'
 const ENV = 'PI_ACP_NAMED_OWNER'
 
 export function parseIdentity(value: unknown): NamedIdentity {
@@ -253,11 +255,15 @@ export function spawnNamedPi(
   return child
 }
 
-export async function runNamedTui(value: NamedIdentity & { cwd: string; sessionFile?: string }): Promise<number> {
+export async function runNamedTui(
+  value: NamedIdentity & { cwd: string; sessionFile?: string; model?: string }
+): Promise<number> {
   const identity = parseIdentity(value)
   const sessionFile = resolveIdentitySessionFile(identity, value.sessionFile)
   const args = ['--session-dir', join(identity.agentDirectory, 'sessions')]
   if (sessionFile) args.push('--session', sessionFile)
+  // A resumed session carries its own model_change records; only --model overrides them.
+  if (value.model) args.push('--model', value.model)
   const child = spawnNamedPi(
     getPiCommand(process.env.PI_ACP_PI_COMMAND),
     args,
