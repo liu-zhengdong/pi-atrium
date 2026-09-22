@@ -200,6 +200,7 @@ PI_ACP_MCP_EXTENSION=/absolute/path/to/pi-mcp-adapter/index.ts npm run smoke:run
 - 其后是旧分支最近的原文，切在用户消息边界，按字节预算取最早可行的那个边界
 - 跨切点的工具调用会被修掉：丢弃孤儿 `toolResult`，剥掉没有结果的 `toolCall`
 - 同一扩展反复注入的相同内容只保留最后一条
+- 连续交接（上一次交接后还没有新压缩）时，上一次的接续正文原样往下传，历史不断链
 - 旧会话文件和它的旁挂状态原样保留，`/resume` 仍可回去
 
 配置写在 Pi 设置的 `atrium.rollover`（全局 `~/.pi/agent/settings.json` 或项目 `.pi/settings.json`，项目优先）：
@@ -211,6 +212,8 @@ PI_ACP_MCP_EXTENSION=/absolute/path/to/pi-mcp-adapter/index.ts npm run smoke:run
 | `tailBudgetKB` | `1024` | 交接时尾巴的字节预算     |
 
 取值不合法时退回默认值。`enabled` 只关提示，`/rollover` 任何时候都能手动执行。
+
+尾巴至少保留切点之后的最后一个回合：整回合超过预算时按整个回合带走，切除的大小会在确认框里写明。会话从来没有压缩过、也没有上一代接续正文时，切点之前的历史只留在旧文件里，确认框会提醒这一点。
 
 Pi 把会话替换限定在用户主动执行的命令上下文里，所以这里不做自动切换；切换前会先给出体量和取舍让用户确认。
 
