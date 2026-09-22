@@ -1,6 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { planRollover, describeCarried, type SessionEntry, type SummaryBlock } from '../../src/rollover/plan.js'
+import {
+  planRollover,
+  describeCarried,
+  carryDetails,
+  carriedParts,
+  type SessionEntry,
+  type SummaryBlock
+} from '../../src/rollover/plan.js'
 
 let seq = 0
 function user(text: string): SessionEntry {
@@ -229,14 +236,14 @@ test('Pi 原生压缩与分支摘要也带进 carry 正文', () => {
 
 test('确认框说清带过去的东西，不把 0 个摘要块和它的体积并列', () => {
   const withBlocks = planRollover([user('一轮'), assistant()], [block('b1', 1), block('b2', 2)], options)
-  assert.match(describeCarried(withBlocks.stats), /新会话将带上2 个摘要块（/)
-  assert.equal(describeCarried(withBlocks.stats).includes('Pi 原生摘要'), false)
+  assert.match(describeCarried(withBlocks), /新会话将带上2 个摘要块（/)
+  assert.equal(describeCarried(withBlocks).includes('Pi 原生摘要'), false)
 
   const consecutive = planRollover([carryEntry('carry-1', '上一代的接续正文'), user('一轮'), assistant()], [], {
     ...options,
     tailBudgetBytes: 1
   })
-  const line = describeCarried(consecutive.stats)
+  const line = describeCarried(consecutive)
   assert.match(line, /上一次的接续正文/)
   assert.equal(line.includes('0 个摘要块'), false)
 })
@@ -249,11 +256,29 @@ test('原生摘要计入组成说明与 stats', () => {
   ]
   const plan = planRollover(branch, [], options)
   assert.equal(plan.stats.nativeSummaries, 2)
-  assert.match(describeCarried(plan.stats), /2 段 Pi 原生摘要/)
+  assert.match(describeCarried(plan), /2 段 Pi 原生摘要/)
 })
 
 test('没有任何可继承内容时，确认框只说剩下原文', () => {
   const plan = planRollover([user('一轮'), assistant()], [], options)
-  assert.equal(describeCarried(plan.stats).startsWith('新会话只有最近'), true)
-  assert.match(describeCarried(plan.stats), /切点之前的历史留在旧文件里/)
+  assert.equal(describeCarried(plan).startsWith('新会话只有最近'), true)
+  assert.match(describeCarried(plan), /切点之前的历史留在旧文件里/)
+})
+
+test('展开行的展示信息来自计划本身，与 stats 一致', () => {
+  const branch = [user('一轮'), assistant()]
+  const plan = planRollover(branch, [block('b1', 1), block('b2', 2)], options)
+  const details = carryDetails(plan)
+  assert.equal(details.parentFile, '/tmp/parent.jsonl')
+  assert.equal(details.blocks, plan.stats.blocks)
+  assert.equal(details.carryBytes, plan.stats.carryBytes)
+  assert.equal(details.tailEntries, plan.stats.tailEntries)
+  assert.equal(details.inheritedCarry, plan.stats.inheritedCarry)
+  assert.deepEqual(carriedParts(details), ['2 个摘要块'])
+
+  const consecutive = planRollover([carryEntry('carry-1', '上一代的接续正文'), user('一轮')], [], {
+    ...options,
+    tailBudgetBytes: 1
+  })
+  assert.deepEqual(carriedParts(carryDetails(consecutive)), ['上一次的接续正文'])
 })

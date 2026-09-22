@@ -3,6 +3,7 @@ import { readRolloverConfig } from './config.js'
 import {
   planRollover,
   describeCarried,
+  carryDetails,
   humanBytes,
   CARRY_CUSTOM_TYPE,
   type RolloverPlan,
@@ -10,6 +11,7 @@ import {
   type SessionMessage
 } from './plan.js'
 import { readActiveBlocks } from './sidecar.js'
+import { registerCarryView, type CarryViewApi } from './carry-view.js'
 
 /** 新会话的写入面，只用到追加上下文可见条目的两个方法。 */
 type AppendTarget = {
@@ -39,7 +41,7 @@ type RolloverCommandContext = RolloverContext & {
   }): Promise<{ cancelled: boolean }>
 }
 
-export type RolloverExtensionApi = {
+export type RolloverExtensionApi = CarryViewApi & {
   on(name: string, handler: (event: unknown, ctx: RolloverContext) => unknown): void
   registerCommand(
     name: string,
@@ -68,7 +70,7 @@ function describe(plan: RolloverPlan, sessionFile: string): string {
   ].filter(Boolean)
   return [
     `当前会话 ${humanBytes(sessionBytes(sessionFile))}，共 ${stats.branchEntries} 条。`,
-    describeCarried(stats),
+    describeCarried(plan),
     ...notes
   ]
     .join('\n')
@@ -77,7 +79,12 @@ function describe(plan: RolloverPlan, sessionFile: string): string {
 
 async function writePlan(sessionManager: AppendTarget, plan: RolloverPlan): Promise<void> {
   // 用 custom_message 而不是普通用户消息：模型照常看到，但下一代交接能认出这是接续上下文。
-  sessionManager.appendCustomMessageEntry(CARRY_CUSTOM_TYPE, [{ type: 'text', text: plan.carryText }], true)
+  sessionManager.appendCustomMessageEntry(
+    CARRY_CUSTOM_TYPE,
+    [{ type: 'text', text: plan.carryText }],
+    true,
+    carryDetails(plan)
+  )
   for (const entry of plan.tail) {
     if (entry.type === 'message' && entry.message) sessionManager.appendMessage(entry.message)
     else if (entry.type === 'custom_message' && typeof entry.customType === 'string')
@@ -102,6 +109,8 @@ async function writePlan(sessionManager: AppendTarget, plan: RolloverPlan): Prom
  */
 export default function rolloverExtension(pi: RolloverExtensionApi): void {
   let nudged = false
+
+  registerCarryView(pi)
 
   pi.on('session_start', () => {
     nudged = false

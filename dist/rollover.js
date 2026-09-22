@@ -200,6 +200,7 @@ function planRollover(branch, blocks, options) {
     ...sections.length > 0 ? ["", ...sections] : []
   ].join("\n");
   return {
+    parentFile: options.parentFile,
     carryText,
     tail: repaired,
     stats: {
@@ -221,15 +222,31 @@ function planRollover(branch, blocks, options) {
 function humanBytes(bytes) {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${(bytes / 1024).toFixed(1)}KB`;
 }
-function describeCarried(stats) {
-  const parts = [
-    stats.blocks > 0 ? `${stats.blocks} \u4E2A\u6458\u8981\u5757` : "",
-    stats.nativeSummaries > 0 ? `${stats.nativeSummaries} \u6BB5 Pi \u539F\u751F\u6458\u8981` : "",
-    stats.inheritedCarry ? "\u4E0A\u4E00\u6B21\u7684\u63A5\u7EED\u6B63\u6587" : ""
+function carryDetails(plan) {
+  const { stats } = plan;
+  return {
+    parentFile: plan.parentFile,
+    blocks: stats.blocks,
+    nativeSummaries: stats.nativeSummaries,
+    inheritedCarry: stats.inheritedCarry,
+    tailEntries: stats.tailEntries,
+    tailBytes: stats.tailBytes,
+    carryBytes: stats.carryBytes
+  };
+}
+function carriedParts(details) {
+  return [
+    details.blocks > 0 ? `${details.blocks} \u4E2A\u6458\u8981\u5757` : "",
+    details.nativeSummaries > 0 ? `${details.nativeSummaries} \u6BB5 Pi \u539F\u751F\u6458\u8981` : "",
+    details.inheritedCarry ? "\u4E0A\u4E00\u6B21\u7684\u63A5\u7EED\u6B63\u6587" : ""
   ].filter(Boolean);
-  const tail = `\u6700\u8FD1 ${stats.tailEntries} \u6761\u539F\u6587\uFF08${humanBytes(stats.tailBytes)}\uFF09`;
+}
+function describeCarried(plan) {
+  const details = carryDetails(plan);
+  const parts = carriedParts(details);
+  const tail = `\u6700\u8FD1 ${details.tailEntries} \u6761\u539F\u6587\uFF08${humanBytes(details.tailBytes)}\uFF09`;
   if (parts.length === 0) return `\u65B0\u4F1A\u8BDD\u53EA\u6709${tail}\uFF0C\u5207\u70B9\u4E4B\u524D\u7684\u5386\u53F2\u7559\u5728\u65E7\u6587\u4EF6\u91CC\u3002`;
-  return `\u65B0\u4F1A\u8BDD\u5C06\u5E26\u4E0A${parts.join("\u3001")}\uFF08${humanBytes(stats.carryBytes)}\uFF09\u548C${tail}\u3002`;
+  return `\u65B0\u4F1A\u8BDD\u5C06\u5E26\u4E0A${parts.join("\u3001")}\uFF08${humanBytes(details.carryBytes)}\uFF09\u548C${tail}\u3002`;
 }
 
 // src/rollover/sidecar.ts
@@ -255,6 +272,50 @@ function readActiveBlocks(sessionFile) {
   return blocks.filter(isBlock).filter((block) => block.active === true);
 }
 
+// src/rollover/carry-view.ts
+import { basename } from "path";
+import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { getMarkdownTheme, keyText } from "@earendil-works/pi-coding-agent";
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => part && typeof part === "object" && "text" in part ? String(part.text) : "").join("\n");
+}
+function carriedLine(details) {
+  const parts = carriedParts(details);
+  const tail = `\u6700\u8FD1 ${details.tailEntries} \u6761\u539F\u6587\uFF08${humanBytes(details.tailBytes)}\uFF09`;
+  if (parts.length === 0) return `\u53EA\u6709${tail}\uFF0C\u66F4\u65E9\u7684\u5386\u53F2\u7559\u5728\u65E7\u6587\u4EF6\u91CC`;
+  return `\u5E26\u4E0A\u4E86${parts.join("\u3001")}\uFF08${humanBytes(details.carryBytes)}\uFF09\u548C${tail}`;
+}
+function expandKeyText() {
+  return keyText("app.tools.expand") || "ctrl+o";
+}
+function registerCarryView(api) {
+  api.registerMessageRenderer(CARRY_CUSTOM_TYPE, (message, options, theme) => {
+    const details = message.details;
+    const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
+    box.addChild(new Text(theme.fg("customMessageLabel", "\x1B[1m[\u63A5\u7EED\u4E0A\u4E0B\u6587]\x1B[22m"), 0, 0));
+    box.addChild(new Spacer(1));
+    if (details) {
+      box.addChild(new Text(theme.fg("customMessageText", `\u7EED\u81EA ${basename(details.parentFile)}`), 0, 0));
+      box.addChild(new Text(theme.fg("customMessageText", carriedLine(details)), 0, 0));
+    } else {
+      box.addChild(new Text(theme.fg("customMessageText", "\u66F4\u65E9\u7684\u5386\u53F2\u5728\u672C\u4F1A\u8BDD\u7684\u65E7\u6587\u4EF6\u91CC"), 0, 0));
+    }
+    if (options.expanded) {
+      box.addChild(new Spacer(1));
+      box.addChild(
+        new Markdown(contentText(message.content), 0, 0, getMarkdownTheme(), {
+          color: (text) => theme.fg("customMessageText", text)
+        })
+      );
+    } else {
+      box.addChild(new Text(`${theme.fg("dim", expandKeyText())} ${theme.fg("muted", "\u5C55\u5F00\u6458\u8981\u6B63\u6587")}`, 0, 0));
+    }
+    return box;
+  });
+}
+
 // src/rollover/extension.ts
 function sessionBytes(sessionFile) {
   try {
@@ -272,12 +333,17 @@ function describe(plan, sessionFile) {
   ].filter(Boolean);
   return [
     `\u5F53\u524D\u4F1A\u8BDD ${humanBytes(sessionBytes(sessionFile))}\uFF0C\u5171 ${stats.branchEntries} \u6761\u3002`,
-    describeCarried(stats),
+    describeCarried(plan),
     ...notes
   ].join("\n").trim();
 }
 async function writePlan(sessionManager, plan) {
-  sessionManager.appendCustomMessageEntry(CARRY_CUSTOM_TYPE, [{ type: "text", text: plan.carryText }], true);
+  sessionManager.appendCustomMessageEntry(
+    CARRY_CUSTOM_TYPE,
+    [{ type: "text", text: plan.carryText }],
+    true,
+    carryDetails(plan)
+  );
   for (const entry of plan.tail) {
     if (entry.type === "message" && entry.message) sessionManager.appendMessage(entry.message);
     else if (entry.type === "custom_message" && typeof entry.customType === "string")
@@ -291,6 +357,7 @@ async function writePlan(sessionManager, plan) {
 }
 function rolloverExtension(pi) {
   let nudged = false;
+  registerCarryView(pi);
   pi.on("session_start", () => {
     nudged = false;
   });

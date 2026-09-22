@@ -65,11 +65,24 @@ export type RolloverStats = {
 }
 
 export type RolloverPlan = {
+  /** 旧会话 jsonl 的绝对路径 */
+  parentFile: string
   /** 新会话的第一条用户消息正文 */
   carryText: string
   /** 紧随其后按顺序重放的尾巴 */
   tail: SessionEntry[]
   stats: RolloverStats
+}
+
+/** 接续条目的展示信息：界面按它拼折叠行的说明，不解析正文。 */
+export type CarryDetails = {
+  parentFile: string
+  blocks: number
+  nativeSummaries: number
+  inheritedCarry: boolean
+  tailEntries: number
+  tailBytes: number
+  carryBytes: number
 }
 
 export type PlanOptions = {
@@ -267,6 +280,7 @@ export function planRollover(branch: SessionEntry[], blocks: SummaryBlock[], opt
   ].join('\n')
 
   return {
+    parentFile: options.parentFile,
     carryText,
     tail: repaired,
     stats: {
@@ -290,14 +304,34 @@ export function humanBytes(bytes: number): string {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${(bytes / 1024).toFixed(1)}KB`
 }
 
-/** 确认框里「带什么过去」那一句；说的东西与真正装进 carry 的组成一致。 */
-export function describeCarried(stats: RolloverStats): string {
-  const parts = [
-    stats.blocks > 0 ? `${stats.blocks} 个摘要块` : '',
-    stats.nativeSummaries > 0 ? `${stats.nativeSummaries} 段 Pi 原生摘要` : '',
-    stats.inheritedCarry ? '上一次的接续正文' : ''
+/** 从计划里提取界面要用的展示信息。 */
+export function carryDetails(plan: RolloverPlan): CarryDetails {
+  const { stats } = plan
+  return {
+    parentFile: plan.parentFile,
+    blocks: stats.blocks,
+    nativeSummaries: stats.nativeSummaries,
+    inheritedCarry: stats.inheritedCarry,
+    tailEntries: stats.tailEntries,
+    tailBytes: stats.tailBytes,
+    carryBytes: stats.carryBytes
+  }
+}
+
+/** 「带过去什么」的组成短语；确认框与界面折叠行共用，避免两处各说一套。 */
+export function carriedParts(details: CarryDetails): string[] {
+  return [
+    details.blocks > 0 ? `${details.blocks} 个摘要块` : '',
+    details.nativeSummaries > 0 ? `${details.nativeSummaries} 段 Pi 原生摘要` : '',
+    details.inheritedCarry ? '上一次的接续正文' : ''
   ].filter(Boolean)
-  const tail = `最近 ${stats.tailEntries} 条原文（${humanBytes(stats.tailBytes)}）`
+}
+
+/** 确认框里「带什么过去」那一句；说的东西与真正装进 carry 的组成一致。 */
+export function describeCarried(plan: RolloverPlan): string {
+  const details = carryDetails(plan)
+  const parts = carriedParts(details)
+  const tail = `最近 ${details.tailEntries} 条原文（${humanBytes(details.tailBytes)}）`
   if (parts.length === 0) return `新会话只有${tail}，切点之前的历史留在旧文件里。`
-  return `新会话将带上${parts.join('、')}（${humanBytes(stats.carryBytes)}）和${tail}。`
+  return `新会话将带上${parts.join('、')}（${humanBytes(details.carryBytes)}）和${tail}。`
 }
