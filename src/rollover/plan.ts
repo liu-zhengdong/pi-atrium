@@ -52,6 +52,8 @@ export type RolloverStats = {
   tailBytes: number
   /** 切点在可交接条目中的下标；等于条目总数表示没有尾巴 */
   cutIndex: number
+  /** 是否带上了上一次交接的接续正文（没有活块时的历史保底） */
+  inheritedCarry: boolean
   /** 丢弃的重复扩展注入数量 */
   droppedDuplicateInjections: number
   /** 丢弃的孤儿 toolResult 数量 */
@@ -240,11 +242,8 @@ export function planRollover(branch: SessionEntry[], blocks: SummaryBlock[], opt
   const cutIndex = findCutIndex(contextual, options.tailBudgetBytes)
   const { repaired, droppedOrphanResults, strippedToolCalls } = repairToolPairs(contextual.slice(cutIndex))
 
-  const sections = [
-    ...(ordered.length === 0 ? inheritedCarry(branch, repaired) : []),
-    ...nativeSummaries(branch),
-    ...ordered.map(blockSection)
-  ]
+  const inherited = ordered.length === 0 ? inheritedCarry(branch, repaired) : []
+  const sections = [...inherited, ...nativeSummaries(branch), ...ordered.map(blockSection)]
   const carryText = [
     '# 会话接续上下文',
     '',
@@ -267,6 +266,7 @@ export function planRollover(branch: SessionEntry[], blocks: SummaryBlock[], opt
       tailEntries: repaired.length,
       tailBytes: repaired.reduce((total, entry) => total + entryBytes(entry), 0),
       cutIndex,
+      inheritedCarry: inherited.length > 0,
       droppedDuplicateInjections,
       droppedOrphanResults,
       strippedToolCalls

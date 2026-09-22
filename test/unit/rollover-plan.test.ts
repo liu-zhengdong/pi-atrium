@@ -176,6 +176,12 @@ test('没有活块时把上一次的接续正文继续往下传', () => {
   const plan = planRollover(branch, [], { ...options, tailBudgetBytes: 1 })
   assert.match(plan.carryText, /上一次交接带过来的上下文/)
   assert.match(plan.carryText, /上一代的接续正文/)
+  assert.equal(plan.stats.inheritedCarry, true)
+})
+
+test('有活块或本来就没有接续正文时，不标记继承了接续正文', () => {
+  assert.equal(planRollover([user('一轮')], [block('b1', 1)], options).stats.inheritedCarry, false)
+  assert.equal(planRollover([user('一轮')], [], options).stats.inheritedCarry, false)
 })
 
 test('已经有活块时不重复叠加上一次的接续正文', () => {

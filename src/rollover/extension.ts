@@ -54,6 +54,10 @@ function sessionBytes(sessionFile: string): number {
 function describe(plan: RolloverPlan, sessionFile: string): string {
   const { stats } = plan
   const notes = [
+    stats.blocks === 0 && !stats.inheritedCarry
+      ? '注意：没有可继承的摘要，切点之前的历史只会留在旧文件里，不进入新会话上下文。'
+      : '旧会话文件原样保留，/resume 仍可回去。',
+    stats.inheritedCarry ? '还没有新的压缩块，上一次交接的接续正文原样往下传。' : '',
     stats.droppedOrphanResults + stats.strippedToolCalls > 0
       ? `修掉跨切点的工具调用：丢弃 ${stats.droppedOrphanResults} 条孤儿结果，剥掉 ${stats.strippedToolCalls} 个悬空调用。`
       : '',
@@ -61,14 +65,10 @@ function describe(plan: RolloverPlan, sessionFile: string): string {
       ? `合并 ${stats.droppedDuplicateInjections} 条重复的扩展注入，每种内容只留最后一条。`
       : ''
   ].filter(Boolean)
-  const repaired = notes.length > 0 ? `\n${notes.join('\n')}` : ''
   return [
     `当前会话 ${humanBytes(sessionBytes(sessionFile))}，共 ${stats.branchEntries} 条。`,
     `新会话将带上 ${stats.blocks} 个摘要块（${humanBytes(stats.carryBytes)}）和最近 ${stats.tailEntries} 条原文（${humanBytes(stats.tailBytes)}）。`,
-    stats.blocks === 0
-      ? '注意：没有可继承的摘要块，切点之前的历史只会留在旧文件里，不进入新会话上下文。'
-      : '旧会话文件原样保留，/resume 仍可回去。',
-    repaired
+    ...notes
   ]
     .join('\n')
     .trim()
