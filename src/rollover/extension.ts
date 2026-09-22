@@ -59,10 +59,6 @@ function describe(plan: RolloverPlan, sessionFile: string): string {
   const { stats } = plan
   const notes = [
     '旧会话文件原样保留，/resume 仍可回去。',
-    stats.inheritedCarry ? '还没有新的压缩块，上一次交接的接续正文原样往下传。' : '',
-    stats.blocks === 0 && stats.nativeSummaries === 0 && !stats.inheritedCarry
-      ? '注意：没有可继承的摘要，切点之前的历史只会留在旧文件里。'
-      : '',
     stats.droppedOrphanResults + stats.strippedToolCalls > 0
       ? `修掉跨切点的工具调用：丢弃 ${stats.droppedOrphanResults} 条孤儿结果，剥掉 ${stats.strippedToolCalls} 个悬空调用。`
       : '',

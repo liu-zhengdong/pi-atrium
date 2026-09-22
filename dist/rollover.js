@@ -267,8 +267,6 @@ function describe(plan, sessionFile) {
   const { stats } = plan;
   const notes = [
     "\u65E7\u4F1A\u8BDD\u6587\u4EF6\u539F\u6837\u4FDD\u7559\uFF0C/resume \u4ECD\u53EF\u56DE\u53BB\u3002",
-    stats.inheritedCarry ? "\u8FD8\u6CA1\u6709\u65B0\u7684\u538B\u7F29\u5757\uFF0C\u4E0A\u4E00\u6B21\u4EA4\u63A5\u7684\u63A5\u7EED\u6B63\u6587\u539F\u6837\u5F80\u4E0B\u4F20\u3002" : "",
-    stats.blocks === 0 && stats.nativeSummaries === 0 && !stats.inheritedCarry ? "\u6CE8\u610F\uFF1A\u6CA1\u6709\u53EF\u7EE7\u627F\u7684\u6458\u8981\uFF0C\u5207\u70B9\u4E4B\u524D\u7684\u5386\u53F2\u53EA\u4F1A\u7559\u5728\u65E7\u6587\u4EF6\u91CC\u3002" : "",
     stats.droppedOrphanResults + stats.strippedToolCalls > 0 ? `\u4FEE\u6389\u8DE8\u5207\u70B9\u7684\u5DE5\u5177\u8C03\u7528\uFF1A\u4E22\u5F03 ${stats.droppedOrphanResults} \u6761\u5B64\u513F\u7ED3\u679C\uFF0C\u5265\u6389 ${stats.strippedToolCalls} \u4E2A\u60AC\u7A7A\u8C03\u7528\u3002` : "",
     stats.droppedDuplicateInjections > 0 ? `\u5408\u5E76 ${stats.droppedDuplicateInjections} \u6761\u91CD\u590D\u7684\u6269\u5C55\u6CE8\u5165\uFF0C\u6BCF\u79CD\u5185\u5BB9\u53EA\u7559\u6700\u540E\u4E00\u6761\u3002` : ""
   ].filter(Boolean);
