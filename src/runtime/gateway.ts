@@ -10,7 +10,20 @@ import {
 
 import { join } from 'node:path'
 import { PiRpcProcess } from '../pi-rpc/process.js'
+import { applySessionModel, applyThinkingLevel } from '../acp/session-config.js'
+import { isThinkingLevel } from '../acp/thinking-levels.js'
 import { parseIdentity, resolveIdentitySessionFile } from './identity.js'
+
+/** What Pi reports after a change, so callers confirm the live model instead of echoing the request. */
+function appliedModel(state: unknown): { model: string; thinking: string } {
+  const value = state as { model?: { provider?: unknown; id?: unknown } | null; thinkingLevel?: unknown } | null
+  const provider = String(value?.model?.provider ?? '').trim()
+  const id = String(value?.model?.id ?? '').trim()
+  return {
+    model: provider && id ? `${provider}/${id}` : '',
+    thinking: typeof value?.thinkingLevel === 'string' ? value.thinkingLevel : ''
+  }
+}
 
 /** Connection-scoped ACP facade. It never takes ownership of an attached Pi process. */
 export class RuntimeGateway {
@@ -26,6 +39,38 @@ export class RuntimeGateway {
     proc.dispose()
     await proc.whenTerminated()
     return { stopped: true }
+  }
+  /** Model catalogue of a Pi this connection started; providers and credentials are per identity. */
+  async models(
+    value: unknown
+  ): Promise<{ models: { id: string; name: string }[]; current: { model: string; thinking: string } }> {
+    const params = object(value),
+      proc = this.namedChildren.get(uuid(params.identityId))
+    if (!proc) throw new Error('Identity is not owned by this ACP connection')
+    const [data, state] = await Promise.all([proc.getAvailableModels(), proc.getState()])
+    const listed = (data as { models?: unknown })?.models
+    const models = (Array.isArray(listed) ? listed : [])
+      .map(entry => {
+        const model = entry as { provider?: unknown; id?: unknown; name?: unknown }
+        const provider = String(model.provider ?? '').trim()
+        const id = String(model.id ?? '').trim()
+        return provider && id ? { id: `${provider}/${id}`, name: String(model.name ?? id) } : null
+      })
+      .filter((model): model is { id: string; name: string } => model !== null)
+    return { models, current: appliedModel(state) }
+  }
+  /** Only a Pi this connection started: an attached peer has no RPC channel to change its model. */
+  async setModel(value: unknown): Promise<{ model: string; thinking: string }> {
+    const params = object(value),
+      proc = this.namedChildren.get(uuid(params.identityId))
+    if (!proc) throw new Error('Identity is not owned by this ACP connection')
+    let state = await applySessionModel(proc, string(params.model, 200))
+    if (params.thinking !== undefined) {
+      const level = string(params.thinking, 16)
+      if (!isThinkingLevel(level)) throw new Error(`Unknown thinking level: ${level}`)
+      state = await applyThinkingLevel(proc, level)
+    }
+    return appliedModel(state)
   }
   private starting = new Set<Promise<{ runtimeId: string }>>()
   private abort = new AbortController()
@@ -53,6 +98,7 @@ export class RuntimeGateway {
       agentDirectory: identity.agentDirectory,
       sessionDirectory: join(identity.agentDirectory, 'sessions'),
       sessionPath,
+      ...(params.model === undefined ? {} : { model: string(params.model, 200) }),
       mcpProxyOnly: true,
       piCommand: process.env.PI_ACP_PI_COMMAND,
       signal: this.abort.signal,

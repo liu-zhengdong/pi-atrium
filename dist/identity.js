@@ -88,6 +88,7 @@ function buildPiInvocation(command, args, opts = {}) {
 // src/runtime/identity.ts
 var bindingKey = /* @__PURE__ */ Symbol.for("@liuser/pi-acp/named-identity/v1");
 var IDENTITY_CAPABILITY = "pi-acp/identity/v1";
+var IDENTITY_MODEL_CAPABILITY = "pi-acp/identity/model/v1";
 var ENV = "PI_ACP_NAMED_OWNER";
 function parseIdentity(value) {
   if (!value || typeof value !== "object") throw new Error("Invalid named identity");
@@ -297,6 +298,7 @@ async function runNamedTui(value) {
   const sessionFile = resolveIdentitySessionFile(identity, value.sessionFile);
   const args = ["--session-dir", join2(identity.agentDirectory, "sessions")];
   if (sessionFile) args.push("--session", sessionFile);
+  if (value.model) args.push("--model", value.model);
   const child = spawnNamedPi(
     getPiCommand(process.env.PI_ACP_PI_COMMAND),
     args,
@@ -320,6 +322,7 @@ async function runNamedTui(value) {
 }
 export {
   IDENTITY_CAPABILITY,
+  IDENTITY_MODEL_CAPABILITY,
   claimIdentity,
   identitySession,
   parseIdentity,

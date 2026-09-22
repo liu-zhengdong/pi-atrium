@@ -108,6 +108,8 @@ type SpawnParams = {
   piCommand?: string
   /** If set, pi will persist the session to this exact file (via `--session <path>`). */
   sessionPath?: string
+  /** Model for this run as `provider/id` with an optional `:<thinking>` suffix (via `--model`). */
+  model?: string
   /** Cancels the version preflight before the RPC child is spawned. */
   signal?: AbortSignal
   /**
@@ -371,6 +373,8 @@ export class PiRpcProcess {
     }
     const sessionPath = params.sessionPath ?? emptySessionPath
     if (sessionPath) args.push('--session', sessionPath)
+    // A resumed session carries its own model_change records; only --model overrides them.
+    if (params.model) args.push('--model', params.model)
     const cleanupEmptySession = () => {
       if (!emptySessionPath) return
       try {
