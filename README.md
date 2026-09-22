@@ -41,6 +41,7 @@ Development is centered around [Zed](https://zed.dev) editor support, and other 
   - pi stores its own sessions under its agent directory (normally `~/.pi/agent/sessions/...`)
   - `pi-acp` stores atomic per-session records under `~/.pi/pi-acp/session-map.json.d/` so concurrent adapter processes do not lose each other's mappings. An existing legacy `session-map.json` remains a read-only migration fallback; deletion tombstones prevent legacy entries from reappearing
 - Slash commands are advertised from pi's authoritative `get_commands` result, plus a small set of adapter built-ins
+- `/rollover` 把超长会话交接到新会话（摘要 + 最近原文），30MB 基准会话冷启动恢复约 19s → 交接后 1.5MB 约 5.5s，旧会话原样留档
 - Pi owns project trust, prompt/template expansion, skills, extensions, and resource loading; the adapter does not scan project resources before pi applies trust policy
 - Text embedded resources and valid image resources are preserved. Malformed images, audio, and unsupported binary MIME types are rejected before any prompt is sent
 - Pi extension select/confirm UI maps to ACP permissions. Input/editor UI maps to unstable form elicitation only when the client negotiates it; otherwise pi receives cancellation
@@ -187,6 +188,35 @@ PI_ACP_MCP_EXTENSION=/absolute/path/to/pi-mcp-adapter/index.ts npm run smoke:run
 占用记录位于同一 `PI_ACP_DIR/identities/`；不同状态目录不属于同一个互斥范围。重复启动返回占用 PID 与工作目录，不抢占已有进程。只有已知父子进程均退出才回收旧记录；启动中断、损坏记录或残留 guard 采用保守拒绝，需要先确认相关进程状态再人工处理。这里是受信任单用户环境的生命周期约束，不是对有本机文件权限者的安全沙箱。
 
 本机真实 Pi 验证由 Atrium 的 `npm run test:pi` 覆盖：实际 CLI、TUI/RPC 交叉占用、原生 `/new`、退出重启及同一聊天延续；本仓库单元测试另覆盖坏输入、损坏／模糊占用和身份指针不向子进程继承。当前具名流程在 macOS 实测，Windows 具名 TUI 尚未验证。
+
+### 超长会话滚动交接
+
+会话文件越大，Pi 恢复时重排版整份 transcript 的代价越高：实测 30MB 会话冷启动恢复到可输入约 19s，交接成 1.5MB 后降到约 5.5s；文件进了页缓存后两者都约 3–4s，差的主要在读取和重排版。
+
+会话超过阈值后，一个回合结束时会提示一次（每个会话只提一次）。执行 `/rollover` 切换到新会话：
+
+- 新会话 header 记录 `parentSession` 指向旧文件，billion-context 据此继承已有压缩状态
+- 第一条是接续消息：旧会话全部 active 摘要块，以及 Pi 原生压缩、分支摘要的正文
+- 其后是旧分支最近的原文，切在用户消息边界，按字节预算取最早可行的那个边界
+- 跨切点的工具调用会被修掉：丢弃孤儿 `toolResult`，剥掉没有结果的 `toolCall`
+- 同一扩展反复注入的相同内容只保留最后一条
+- 连续交接（上一次交接后还没有新压缩）时，上一次的接续正文原样往下传，历史不断链
+- 接续消息在界面上折叠成四行（来源文件、组成与体量），`ctrl+o` 展开看全文；模型看到的正文不受影响
+- 旧会话文件和它的旁挂状态原样保留，`/resume` 仍可回去
+
+配置写在 Pi 设置的 `atrium.rollover`（全局 `~/.pi/agent/settings.json` 或项目 `.pi/settings.json`，项目优先）：
+
+| 键             | 默认   | 说明                     |
+| -------------- | ------ | ------------------------ |
+| `enabled`      | `true` | 是否在超过阈值时提示     |
+| `thresholdMB`  | `20`   | 会话文件超过多大开始提示 |
+| `tailBudgetKB` | `1024` | 交接时尾巴的字节预算     |
+
+取值不合法时退回默认值。`enabled` 只关提示，`/rollover` 任何时候都能手动执行。
+
+尾巴至少保留切点之后的最后一个回合：整回合超过预算时按整个回合带走。确认框写明当前会话体量、新会话带走的组成与体量。会话从来没有压缩过、也没有上一代接续正文时，切点之前的历史只留在旧文件里，确认框会提醒这一点。
+
+Pi 把会话替换限定在用户主动执行的命令上下文里，所以这里不做自动切换；切换前会先给出体量和取舍让用户确认。
 
 ### Environment variables
 
