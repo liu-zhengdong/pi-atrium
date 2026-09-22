@@ -35,6 +35,7 @@
     "extensions": [
       "./adapter/index.ts",
       "./dist/pi-extension.js",
+      "./dist/rollover.js",
       "./notes/src/index.ts"
     ]
   },

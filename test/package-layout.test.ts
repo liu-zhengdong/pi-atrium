@@ -20,7 +20,12 @@ test('合集声明可安装的扩展入口', () => {
   }
   assert.equal(pkg.bin['pi-acp'], 'dist/index.js')
   assert.equal(pkg.workspaces, undefined)
-  assert.deepEqual(pkg.pi.extensions, ['./adapter/index.ts', './dist/pi-extension.js', './notes/src/index.ts'])
+  assert.deepEqual(pkg.pi.extensions, [
+    './adapter/index.ts',
+    './dist/pi-extension.js',
+    './dist/rollover.js',
+    './notes/src/index.ts'
+  ])
   for (const entry of pkg.pi.extensions) {
     assert.equal(existsSync(join(root, entry)), true, entry)
   }
