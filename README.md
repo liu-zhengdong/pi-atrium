@@ -41,7 +41,7 @@ Development is centered around [Zed](https://zed.dev) editor support, and other 
   - pi stores its own sessions under its agent directory (normally `~/.pi/agent/sessions/...`)
   - `pi-acp` stores atomic per-session records under `~/.pi/pi-acp/session-map.json.d/` so concurrent adapter processes do not lose each other's mappings. An existing legacy `session-map.json` remains a read-only migration fallback; deletion tombstones prevent legacy entries from reappearing
 - Slash commands are advertised from pi's authoritative `get_commands` result, plus a small set of adapter built-ins
-- `/rollover` 把超长会话交接到新会话（摘要 + 最近原文），实测恢复时间 11.2s → 3.9s，旧会话原样留档
+- `/rollover` 把超长会话交接到新会话（摘要 + 最近原文），31MB 基准会话实测恢复时间 13.3s → 5.5s，旧会话原样留档
 - Pi owns project trust, prompt/template expansion, skills, extensions, and resource loading; the adapter does not scan project resources before pi applies trust policy
 - Text embedded resources and valid image resources are preserved. Malformed images, audio, and unsupported binary MIME types are rejected before any prompt is sent
 - Pi extension select/confirm UI maps to ACP permissions. Input/editor UI maps to unstable form elicitation only when the client negotiates it; otherwise pi receives cancellation
@@ -213,7 +213,7 @@ PI_ACP_MCP_EXTENSION=/absolute/path/to/pi-mcp-adapter/index.ts npm run smoke:run
 
 取值不合法时退回默认值。`enabled` 只关提示，`/rollover` 任何时候都能手动执行。
 
-尾巴至少保留切点之后的最后一个回合：整回合超过预算时按整个回合带走，切除的大小会在确认框里写明。会话从来没有压缩过、也没有上一代接续正文时，切点之前的历史只留在旧文件里，确认框会提醒这一点。
+尾巴至少保留切点之后的最后一个回合：整回合超过预算时按整个回合带走。确认框写明当前会话体量、新会话带走的组成与体量。会话从来没有压缩过、也没有上一代接续正文时，切点之前的历史只留在旧文件里，确认框会提醒这一点。
 
 Pi 把会话替换限定在用户主动执行的命令上下文里，所以这里不做自动切换；切换前会先给出体量和取舍让用户确认。
 
