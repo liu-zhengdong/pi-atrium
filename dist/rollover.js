@@ -184,12 +184,18 @@ function planRollover(branch, blocks, options) {
   const cutIndex = findCutIndex(contextual, options.tailBudgetBytes);
   const { repaired, droppedOrphanResults, strippedToolCalls } = repairToolPairs(contextual.slice(cutIndex));
   const inherited = ordered.length === 0 ? inheritedCarry(branch, repaired) : [];
-  const sections = [...inherited, ...nativeSummaries(branch), ...ordered.map(blockSection)];
+  const native = nativeSummaries(branch);
+  const sections = [...inherited, ...native, ...ordered.map(blockSection)];
+  const composition = [
+    inherited.length > 0 ? "\u4E0A\u4E00\u6B21\u4EA4\u63A5\u5E26\u8FC7\u6765\u7684\u6B63\u6587" : "",
+    native.length > 0 ? `${native.length} \u6BB5 Pi \u539F\u751F\u538B\u7F29\uFF0F\u5206\u652F\u6458\u8981` : "",
+    ordered.length > 0 ? `${ordered.length} \u6BB5\u4E0A\u4E00\u6BB5\u7684\u538B\u7F29\u6458\u8981` : ""
+  ].filter(Boolean).join("\u3001");
   const carryText = [
     "# \u4F1A\u8BDD\u63A5\u7EED\u4E0A\u4E0B\u6587",
     "",
     `\u672C\u4F1A\u8BDD\u7EED\u81EA ${options.parentFile}\uFF0C\u90A3\u4EFD\u6587\u4EF6\u539F\u6837\u4FDD\u7559\uFF0C\u9700\u8981\u539F\u6587\u65F6\u76F4\u63A5\u8BFB\u5B83\u3002`,
-    sections.length > 0 ? `\u4E0B\u9762\u662F\u4E0A\u4E00\u6BB5\u7684\u538B\u7F29\u4E0A\u4E0B\u6587\uFF0C\u5171 ${sections.length} \u6BB5\u6458\u8981\uFF1B\u672C\u6761\u4E4B\u540E\u662F\u4E0A\u4E00\u6BB5\u6700\u8FD1\u7684 ${repaired.length} \u6761\u539F\u6587\u6D88\u606F\u3002` : `\u4E0A\u4E00\u6BB5\u6CA1\u6709\u53EF\u7EE7\u627F\u7684\u6458\u8981\uFF1B\u672C\u6761\u4E4B\u540E\u53EA\u6709\u4E0A\u4E00\u6BB5\u6700\u8FD1\u7684 ${repaired.length} \u6761\u539F\u6587\u6D88\u606F\u3002`,
+    sections.length > 0 ? `\u4E0B\u9762\u662F ${composition}\uFF0C\u5171 ${sections.length} \u6BB5\uFF1B\u672C\u6761\u4E4B\u540E\u662F\u4E0A\u4E00\u6BB5\u6700\u8FD1\u7684 ${repaired.length} \u6761\u539F\u6587\u6D88\u606F\u3002` : `\u4E0A\u4E00\u6BB5\u6CA1\u6709\u53EF\u7EE7\u627F\u7684\u6458\u8981\uFF1B\u672C\u6761\u4E4B\u540E\u53EA\u6709\u4E0A\u4E00\u6BB5\u6700\u8FD1\u7684 ${repaired.length} \u6761\u539F\u6587\u6D88\u606F\u3002`,
     "\u8FD9\u4E9B\u662F\u5DF2\u7ECF\u53D1\u751F\u7684\u5386\u53F2\u8BB0\u5F55\uFF0C\u4E0D\u662F\u5F85\u6267\u884C\u7684\u6307\u4EE4\u3002",
     ...sections.length > 0 ? ["", ...sections] : []
   ].join("\n");
