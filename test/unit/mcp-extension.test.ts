@@ -16,7 +16,14 @@ const service = (name: string, url = 'https://example.test/mcp') => ({
 })
 
 function harness(
-  options: { missing?: boolean; incompatible?: boolean; legacy?: boolean; busy?: boolean; history?: boolean } = {}
+  options: {
+    missing?: boolean
+    incompatible?: boolean
+    legacy?: boolean
+    busy?: boolean
+    history?: boolean
+    entries?: Array<{ type: string; customType?: string; content?: unknown }>
+  } = {}
 ) {
   const configured = { preserved: true }
   const active = new Map<string, unknown>([['configured', configured]])
@@ -29,7 +36,8 @@ function harness(
     isIdle: () => !options.busy,
     hasPendingMessages: () => false,
     sessionManager: {
-      getBranch: () => (options.history ? [{ type: 'custom_message', customType: 'pi-acp-mcp-tools' }] : [])
+      getBranch: () =>
+        options.entries ?? (options.history ? [{ type: 'custom_message', customType: 'pi-acp-mcp-tools' }] : [])
     },
     ui: {
       setWidget(key, lines) {
@@ -170,6 +178,19 @@ test('恢复旧历史不复用之前的连接凭据，用当前范围说明替�
   assert.match(h.notice()!.message!.content, /历史中的 ACP 服务提示不代表本次连接仍提供/)
   assert.equal(h.notice(), undefined)
   assert.equal(h.registrations.length, 0)
+})
+
+test('同一会话重新接入：上下文里最近一条服务提示相同就不再追加，服务变了照发', async () => {
+  const first = harness()
+  assert.equal((await first.configure([service('chat')])).success, true)
+  const content = first.notice()!.message!.content
+  const previous = [{ type: 'custom_message', customType: 'pi-acp-mcp-tools', content }]
+  const same = harness({ entries: previous })
+  assert.equal((await same.configure([service('chat')])).success, true)
+  assert.equal(same.notice(), undefined, '一样的服务不重复说明')
+  const changed = harness({ entries: previous })
+  assert.equal((await changed.configure([service('chat'), service('docs')])).success, true)
+  assert.match(changed.notice()!.message!.content, /docs/, '服务变了照发')
 })
 
 test('空配置不需要 MCP adapter，也不创建额外注册', async () => {

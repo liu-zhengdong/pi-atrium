@@ -90,6 +90,7 @@ function mcpDefinition(server) {
 }
 
 // src/pi-rpc/mcp-extension.ts
+var contextEntries = (ctx) => ctx.sessionManager?.buildContextEntries?.() ?? ctx.sessionManager?.getBranch?.() ?? [];
 function registerMcpBridge(pi) {
   let generation = 0;
   let owned = /* @__PURE__ */ new Map();
@@ -221,22 +222,19 @@ function registerMcpBridge(pi) {
     }
   });
   const notice = (ctx) => {
+    const notices = () => contextEntries(ctx).filter((entry) => entry.type === "custom_message" && entry.customType === "pi-acp-mcp-tools");
     if (!checkedHistory) {
       checkedHistory = true;
-      noticePending ||= ctx.sessionManager?.getBranch?.().some((entry) => entry.type === "custom_message" && entry.customType === "pi-acp-mcp-tools") ?? false;
+      noticePending ||= notices().length > 0;
     }
     if (!noticePending || closing || poisoned) return;
     noticePending = false;
     const names = [...owned.keys()];
-    return {
-      message: {
-        customType: "pi-acp-mcp-tools",
-        display: false,
-        content: names.length ? `\u672C\u6B21 ACP \u8FDE\u63A5\u989D\u5916\u63D0\u4F9B\u7684 MCP \u670D\u52A1\uFF1A${names.join("\u3001")}\u3002\u539F\u6709\u914D\u7F6E\u7684\u670D\u52A1\u4FDD\u6301\u53EF\u7528\u3002
+    const content = names.length ? `\u672C\u6B21 ACP \u8FDE\u63A5\u989D\u5916\u63D0\u4F9B\u7684 MCP \u670D\u52A1\uFF1A${names.join("\u3001")}\u3002\u539F\u6709\u914D\u7F6E\u7684\u670D\u52A1\u4FDD\u6301\u53EF\u7528\u3002
 \u4F7F\u7528\u56FA\u5B9A mcp \u4EE3\u7406\u53D1\u73B0\u5DE5\u5177\uFF1Amcp({server:"\u670D\u52A1\u540D\u79F0"})\uFF1B\u67E5\u770B\u53C2\u6570\uFF1Amcp({server:"\u670D\u52A1\u540D\u79F0",describe:"\u5DE5\u5177\u540D\u79F0"})\uFF1B\u8C03\u7528\uFF1Amcp({server:"\u670D\u52A1\u540D\u79F0",tool:"\u5DE5\u5177\u540D\u79F0",args:{...}})\u3002\u5177\u4F53\u5DE5\u5177\u63CF\u8FF0\u548C\u53C2\u6570\u4ECE\u8FD4\u56DE\u7ED3\u679C\u8BFB\u53D6\u3002
-\u8FD9\u662F\u80FD\u529B\u4F7F\u7528\u8BF4\u660E\uFF0C\u4E0D\u8981\u6C42\u7ACB\u5373\u8C03\u7528\u5DE5\u5177\uFF0C\u4E5F\u4E0D\u6539\u53D8\u5F53\u524D\u4EFB\u52A1\u3002` : "\u672C\u6B21 ACP \u8FDE\u63A5\u672A\u63D0\u4F9B\u989D\u5916 MCP \u670D\u52A1\uFF1B\u539F\u6709\u914D\u7F6E\u7684\u670D\u52A1\u4FDD\u6301\u53EF\u7528\u3002\u5386\u53F2\u4E2D\u7684 ACP \u670D\u52A1\u63D0\u793A\u4E0D\u4EE3\u8868\u672C\u6B21\u8FDE\u63A5\u4ECD\u63D0\u4F9B\u8FD9\u4E9B\u670D\u52A1\u3002"
-      }
-    };
+\u8FD9\u662F\u80FD\u529B\u4F7F\u7528\u8BF4\u660E\uFF0C\u4E0D\u8981\u6C42\u7ACB\u5373\u8C03\u7528\u5DE5\u5177\uFF0C\u4E5F\u4E0D\u6539\u53D8\u5F53\u524D\u4EFB\u52A1\u3002` : "\u672C\u6B21 ACP \u8FDE\u63A5\u672A\u63D0\u4F9B\u989D\u5916 MCP \u670D\u52A1\uFF1B\u539F\u6709\u914D\u7F6E\u7684\u670D\u52A1\u4FDD\u6301\u53EF\u7528\u3002\u5386\u53F2\u4E2D\u7684 ACP \u670D\u52A1\u63D0\u793A\u4E0D\u4EE3\u8868\u672C\u6B21\u8FDE\u63A5\u4ECD\u63D0\u4F9B\u8FD9\u4E9B\u670D\u52A1\u3002";
+    if (notices().at(-1)?.content === content) return;
+    return { message: { customType: "pi-acp-mcp-tools", display: false, content } };
   };
   pi.on("before_agent_start", (_event, ctx) => notice(ctx));
   pi.on("session_start", () => {
@@ -505,6 +503,7 @@ function registerRuntimeBridge(pi, mcp) {
   let cleanupTimer;
   const sockets = /* @__PURE__ */ new Set();
   const received = /* @__PURE__ */ new Map();
+  let seeded = false;
   const registrations = /* @__PURE__ */ new Set();
   function current(generation) {
     if (closing || generation !== epoch || !ctx) throw new Error("Runtime generation is no longer active");
@@ -549,6 +548,7 @@ function registerRuntimeBridge(pi, mcp) {
     sockets.clear();
     owner = void 0;
     received.clear();
+    seeded = false;
     registrations.clear();
     const previous = server, previousRecord = record2;
     server = void 0;
@@ -645,9 +645,20 @@ function registerRuntimeBridge(pi, mcp) {
             images.map((image) => [image.mimeType, createHash("sha256").update(image.data).digest("hex")])
           ])
         ).digest("hex");
-        const previous = received.get(id);
-        if (previous && previous !== fingerprint) throw new Error("Delivery id reused with different content");
-        if (previous) return { accepted: true, duplicate: true, sessionId: now.sessionId };
+        if (!seeded) {
+          seeded = true;
+          for (const entry of contextEntries(current(generation))) {
+            if (entry.type !== "custom_message" || entry.customType !== "pi-acp-external") continue;
+            const details = entry.details;
+            if (typeof details?.deliveryId === "string" && !received.has(details.deliveryId))
+              received.set(details.deliveryId, typeof details.fingerprint === "string" ? details.fingerprint : "");
+          }
+        }
+        if (received.has(id)) {
+          const previous = received.get(id);
+          if (previous && previous !== fingerprint) throw new Error("Delivery id reused with different content");
+          return { accepted: true, duplicate: true, sessionId: now.sessionId };
+        }
         const header = `\u6765\u81EA ${source}
 
 ${text}`;
@@ -656,7 +667,7 @@ ${text}`;
             customType: "pi-acp-external",
             content: images.length === 0 ? header : [{ type: "text", text: header }, ...images],
             display: true,
-            details: { deliveryId: id, source }
+            details: { deliveryId: id, source, fingerprint }
           },
           {
             // Pi defers triggerTurn:false messages until agent_end, even with deliverAs:'steer'.

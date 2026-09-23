@@ -28,6 +28,10 @@ test('live runtime: ACP facade, scoped MCP, generation fences, receipts and malf
   let busy = false,
     dead = false,
     sessionId = randomUUID()
+  // 整条分支与模型当前看得到的条目；压缩过的会话里后者是前者的一部分。
+  type Entry = { type: string; customType?: string; details?: unknown }
+  let branchView: Entry[] = [],
+    contextView: Entry[] = []
   const context = {
     cwd: process.cwd(),
     hasUI: true,
@@ -42,7 +46,8 @@ test('live runtime: ACP facade, scoped MCP, generation fences, receipts and malf
         return sessionId
       },
       getSessionFile: () => undefined,
-      getBranch: () => []
+      getBranch: () => branchView,
+      buildContextEntries: () => contextView
     },
     ui: { setWidget() {} }
   }
@@ -298,6 +303,40 @@ test('live runtime: ACP facade, scoped MCP, generation fences, receipts and malf
         images: Array.from({ length: 11 }, () => pictured.images[0])
       })
     )
+    // 同一会话重新开始一代（等同进程重启后以原会话接入）：上下文里已有的投递算重复，
+    // 只留在压缩前历史里的重新送。
+    const kept = randomUUID(),
+      compacted = randomUUID()
+    const entry = (deliveryId: string) => ({
+      type: 'custom_message',
+      customType: 'pi-acp-external',
+      details: { deliveryId, source: 'Atrium 接入说明' }
+    })
+    branchView = [entry(compacted), entry(kept)]
+    contextView = [entry(kept)]
+    await fire('session_start')
+    const d = connect()
+    await call(d, 'initialize', { protocolVersion: 1 })
+    const resumed = await call<RuntimeStatus>(d, methods.attach, { runtimeId })
+    assert.equal(resumed.sessionId, sessionId)
+    const guide = (id: string) => ({
+      runtimeId,
+      generation: resumed.generation,
+      sessionId,
+      id,
+      source: 'Atrium 接入说明',
+      text: '接入说明',
+      delivery: 'steer',
+      triggerTurn: false
+    })
+    const before = messages.length
+    assert.equal((await call(d, methods.deliver, guide(kept))).duplicate, true, '上下文里已有，重启后不再追加')
+    assert.equal((await call(d, methods.deliver, guide(compacted))).duplicate, undefined, '压缩掉的重新送')
+    assert.equal(messages.length, before + 1)
+    const details = (messages.at(-1)!.message as { details?: { fingerprint?: unknown } }).details
+    assert.match(String(details?.fingerprint), /^[0-9a-f]{64}$/, '新投递记下内容指纹')
+    // 同一 id 换了正文仍然拒绝（ACP 层把原因包成 Internal error）。
+    await assert.rejects(call(d, methods.deliver, { ...guide(compacted), text: '改过的说明' }))
   } finally {
     for (const peer of peers) peer.close()
     dead = false
