@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { agent, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { registerMcpBridge, type McpContext, type McpExtensionApi } from '../pi-rpc/mcp-extension.js'
+import { contextEntries, registerMcpBridge, type McpContext, type McpExtensionApi } from '../pi-rpc/mcp-extension.js'
 import { RuntimeEvents, resultText } from './events.js'
 import { processIdentity, rememberIdentitySession } from './identity.js'
 import {
@@ -25,7 +25,6 @@ type Context = McpContext & {
   sessionManager: {
     getSessionId(): string
     getSessionFile(): string | undefined
-    getBranch?(): Array<{ type: string; customType?: string }>
   }
 }
 type ImagePart = { type: 'image'; mimeType: string; data: string }
@@ -74,6 +73,8 @@ export function registerRuntimeBridge(pi: McpExtensionApi, mcp: ReturnType<typeo
   let cleanupTimer: ReturnType<typeof setTimeout> | undefined
   const sockets = new Set<Socket>()
   const received = new Map<string, string>()
+  // received 只记得本进程送过的；每代第一次投递时从模型当前上下文补齐一次。
+  let seeded = false
   const registrations = new Set<(ctx: McpContext) => Promise<void>>()
   function current(generation: number): Context {
     // Pi context getters can refer to a disposed session after /new or /reload.
@@ -120,6 +121,7 @@ export function registerRuntimeBridge(pi: McpExtensionApi, mcp: ReturnType<typeo
     sockets.clear()
     owner = undefined
     received.clear()
+    seeded = false
     registrations.clear()
     const previous = server,
       previousRecord = record
@@ -235,16 +237,29 @@ export function registerRuntimeBridge(pi: McpExtensionApi, mcp: ReturnType<typeo
               ])
             )
             .digest('hex')
-          const previous = received.get(id)
-          if (previous && previous !== fingerprint) throw new Error('Delivery id reused with different content')
-          if (previous) return { accepted: true, duplicate: true, sessionId: now.sessionId }
+          if (!seeded) {
+            seeded = true
+            // 进程重启后以同一会话接入时，上下文里已有的投递不再追加；
+            // 被压缩掉的不在上下文里，可以重新送。旧条目没有指纹，只按 id 算重复。
+            for (const entry of contextEntries(current(generation))) {
+              if (entry.type !== 'custom_message' || entry.customType !== 'pi-acp-external') continue
+              const details = entry.details as { deliveryId?: unknown; fingerprint?: unknown } | undefined
+              if (typeof details?.deliveryId === 'string' && !received.has(details.deliveryId))
+                received.set(details.deliveryId, typeof details.fingerprint === 'string' ? details.fingerprint : '')
+            }
+          }
+          if (received.has(id)) {
+            const previous = received.get(id)
+            if (previous && previous !== fingerprint) throw new Error('Delivery id reused with different content')
+            return { accepted: true, duplicate: true, sessionId: now.sessionId }
+          }
           const header = `来自 ${source}\n\n${text}`
           send(
             {
               customType: 'pi-acp-external',
               content: images.length === 0 ? header : [{ type: 'text' as const, text: header }, ...images],
               display: true,
-              details: { deliveryId: id, source }
+              details: { deliveryId: id, source, fingerprint }
             },
             {
               // Pi defers triggerTurn:false messages until agent_end, even with deliverAs:'steer'.

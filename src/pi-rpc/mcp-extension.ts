@@ -11,12 +11,20 @@ import {
 
 type Registration = { readonly toolExposure?: string; dispose(): Promise<void> }
 type Owned = { server: McpServer; registration: Registration }
+export type ContextEntry = { type: string; customType?: string; content?: unknown; details?: unknown }
 export type McpContext = {
   isIdle(): boolean
   hasPendingMessages(): boolean
-  sessionManager?: { getBranch?(): Array<{ type: string; customType?: string }> }
+  sessionManager?: {
+    getBranch?(): ContextEntry[]
+    /** 模型当前看得到的条目：压缩过的只剩摘要和保留部分。 */
+    buildContextEntries?(): ContextEntry[]
+  }
   ui: { setWidget(key: string, lines: string[]): void }
 }
+/** 模型当前上下文里的条目；没有 buildContextEntries 的旧版 Pi 退回整条分支。 */
+export const contextEntries = (ctx: McpContext): ContextEntry[] =>
+  ctx.sessionManager?.buildContextEntries?.() ?? ctx.sessionManager?.getBranch?.() ?? []
 export type McpExtensionApi = {
   events: { emit(name: string, data: unknown): void }
   on(name: string, handler: (event: unknown, ctx: McpContext) => unknown): void
@@ -180,28 +188,24 @@ export function registerMcpBridge(pi: McpExtensionApi) {
   })
 
   const notice = (ctx: McpContext) => {
+    const notices = () =>
+      contextEntries(ctx).filter(entry => entry.type === 'custom_message' && entry.customType === 'pi-acp-mcp-tools')
     if (!checkedHistory) {
       checkedHistory = true
-      noticePending ||=
-        ctx.sessionManager
-          ?.getBranch?.()
-          .some(entry => entry.type === 'custom_message' && entry.customType === 'pi-acp-mcp-tools') ?? false
+      noticePending ||= notices().length > 0
     }
     if (!noticePending || closing || poisoned) return
     noticePending = false
     const names = [...owned.keys()]
-    return {
-      message: {
-        customType: 'pi-acp-mcp-tools',
-        display: false,
-        content: names.length
-          ? `本次 ACP 连接额外提供的 MCP 服务：${names.join('、')}。原有配置的服务保持可用。\n` +
-            '使用固定 mcp 代理发现工具：mcp({server:"服务名称"})；查看参数：mcp({server:"服务名称",describe:"工具名称"})；' +
-            '调用：mcp({server:"服务名称",tool:"工具名称",args:{...}})。具体工具描述和参数从返回结果读取。\n' +
-            '这是能力使用说明，不要求立即调用工具，也不改变当前任务。'
-          : '本次 ACP 连接未提供额外 MCP 服务；原有配置的服务保持可用。历史中的 ACP 服务提示不代表本次连接仍提供这些服务。'
-      }
-    }
+    const content = names.length
+      ? `本次 ACP 连接额外提供的 MCP 服务：${names.join('、')}。原有配置的服务保持可用。\n` +
+        '使用固定 mcp 代理发现工具：mcp({server:"服务名称"})；查看参数：mcp({server:"服务名称",describe:"工具名称"})；' +
+        '调用：mcp({server:"服务名称",tool:"工具名称",args:{...}})。具体工具描述和参数从返回结果读取。\n' +
+        '这是能力使用说明，不要求立即调用工具，也不改变当前任务。'
+      : '本次 ACP 连接未提供额外 MCP 服务；原有配置的服务保持可用。历史中的 ACP 服务提示不代表本次连接仍提供这些服务。'
+    // 同一会话重新接入时服务往往没变：上下文里最近一条提示一字不差就不再追加。
+    if (notices().at(-1)?.content === content) return
+    return { message: { customType: 'pi-acp-mcp-tools', display: false, content } }
   }
   pi.on('before_agent_start', (_event, ctx) => notice(ctx))
   pi.on('session_start', () => {
