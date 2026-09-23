@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   updateStatusBar: vi.fn(),
   flushMetadataCache: vi.fn(),
   notifyToolMetadataUpdated: vi.fn(),
+  lazyConnect: vi.fn().mockResolvedValue(true),
   initializeOAuth: vi.fn().mockResolvedValue(undefined),
   createOAuthRuntime: vi.fn((signal: AbortSignal) => ({ signal })),
   shutdownOAuth: vi.fn().mockResolvedValue(undefined),
@@ -49,6 +50,7 @@ vi.mock("../init.ts", () => ({
   updateStatusBar: mocks.updateStatusBar,
   flushMetadataCache: mocks.flushMetadataCache,
   notifyToolMetadataUpdated: mocks.notifyToolMetadataUpdated,
+  lazyConnect: mocks.lazyConnect,
 }));
 
 vi.mock("../mcp-auth-flow.ts", () => ({
@@ -428,6 +430,9 @@ describe("runtime MCP server registration", () => {
       expect.objectContaining({ url: "https://example.test/mcp" }),
       undefined,
     );
+    await settle();
+    // 宿主提供的服务注册后立刻连上刷新工具清单，不沿用上次连接留下的缓存。
+    expect(mocks.lazyConnect).toHaveBeenCalledWith(state, "plugin-a", expect.anything());
 
     await registration.dispose();
     expect(state.config.mcpServers["plugin-a"]).toBeUndefined();
@@ -483,6 +488,7 @@ describe("runtime MCP server registration", () => {
       runtime: true,
       persisted: false,
     });
+    expect(mocks.lazyConnect).toHaveBeenCalledWith(state, "early-plugin", expect.anything());
   });
 
   it("reapplies registrations across session restarts and keeps configured servers on collision", async () => {

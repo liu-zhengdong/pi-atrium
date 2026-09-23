@@ -698,6 +698,20 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
 
   registerPromptCommands(resolveCachedPrompts(earlyConfig));
 
+  // 宿主在这次连接里提供的服务是活的：注册后立刻在后台连上，刷新工具清单和缓存。
+  // 缓存按服务定义判断是否有效，宿主改了工具而地址没变时，旧清单会一直当有效；
+  // 没连上的服务列工具时也只会提示「未连接」。连接完成后由 onToolMetadataUpdated 同步工具面。
+  function connectRuntimeServer(targetState: McpExtensionState, name: string): void {
+    const guard = captureRuntimeGuard(targetState);
+    void loadForRuntime(loadCoreRuntime, guard)
+      .then(({ lazyConnect }) => lazyConnect(targetState, name, guard.owner?.signal))
+      .catch((error) => {
+        if (!isAbortError(error, guard.owner?.signal)) {
+          logger.debug(`MCP: could not connect runtime server "${name}": ${formatTerminalError(error)}`);
+        }
+      });
+  }
+
   const registerRuntimeServer = (name: string, definition: ServerEntry): McpServerRegistration => {
     if (typeof name !== "string" || name.trim() === "") {
       throw new Error("MCP server name must be a non-empty string");
@@ -719,6 +733,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       registeredState.config.mcpServers[name] = entry;
       attachRuntimeServerLifecycle(registeredState, name, entry);
       syncToolSurface();
+      connectRuntimeServer(registeredState, name);
       const guard = captureRuntimeGuard(registeredState);
       void loadForRuntime(loadCoreRuntime, guard)
         .then(({ updateStatusBar }) => updateStatusBar(registeredState))
@@ -900,6 +915,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
           nextState.config.mcpServers[name] = entry;
           guard();
           callReentrant(() => attachRuntimeServerLifecycle(nextState, name, entry));
+          connectRuntimeServer(nextState, name);
         }
         guard();
         nextState.onToolMetadataUpdated = (_serverName, _reason) => {
