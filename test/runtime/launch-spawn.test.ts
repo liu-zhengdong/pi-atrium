@@ -6,9 +6,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PiRpcProcess } from '../../src/pi-rpc/process.js'
 import { RuntimeGateway } from '../../src/runtime/gateway.js'
-import { runNamedTui } from '../../src/runtime/identity.js'
+import { runNamedTui, spawnNamedPi } from '../../src/runtime/identity.js'
 
-async function captured(file: string): Promise<{ token?: string; root?: string; config?: string; apiKey?: string }> {
+async function captured(file: string): Promise<{
+  token?: string
+  root?: string
+  config?: string
+  apiKey?: string
+  openaiKey?: string
+  awsProfile?: string
+}> {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'))
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -22,6 +29,8 @@ test('named RPC Pi receives only its selected account token; unassigned child do
   const prevData = process.env.PI_ACP_DIR
   const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
   const prevApiKey = process.env.ANTHROPIC_API_KEY
+  const prevOpenAIKey = process.env.OPENAI_API_KEY
+  const prevAwsProfile = process.env.AWS_PROFILE
   const prevConfig = process.env.CLAUDE_CONFIG_DIR
   const prevCapture = process.env.PI_TEST_CAPTURE
   const accounts = join(home, 'accounts')
@@ -30,13 +39,15 @@ test('named RPC Pi receives only its selected account token; unassigned child do
   const fake = join(home, 'fake-pi')
   writeFileSync(
     fake,
-    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nfs.writeFileSync(process.env.PI_TEST_CAPTURE, JSON.stringify({token:process.env.CLAUDE_CODE_OAUTH_TOKEN,root:process.env.PI_ACP_LAUNCH_SECRET_ROOT,config:process.env.CLAUDE_CONFIG_DIR,apiKey:process.env.ANTHROPIC_API_KEY}));\nprocess.stdin.on('data', part => { for (const line of part.toString().trim().split('\\n')) { const req=JSON.parse(line); if(req.type==='get_commands') process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:[{name:'claude-bridge-token-ready-v1'}]}})+'\\n') } });\nsetInterval(()=>{},1000);\n`,
+    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nfs.writeFileSync(process.env.PI_TEST_CAPTURE, JSON.stringify({token:process.env.CLAUDE_CODE_OAUTH_TOKEN,root:process.env.PI_ACP_LAUNCH_SECRET_ROOT,config:process.env.CLAUDE_CONFIG_DIR,apiKey:process.env.ANTHROPIC_API_KEY,openaiKey:process.env.OPENAI_API_KEY,awsProfile:process.env.AWS_PROFILE}));\nprocess.stdin.on('data', part => { for (const line of part.toString().trim().split('\\n')) { const req=JSON.parse(line); if(req.type==='get_commands') process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:[{name:'claude-bridge-token-ready-v1'}]}})+'\\n') } });\nsetInterval(()=>{},1000);\n`,
     { mode: 0o700 }
   )
   process.env.PI_ACP_DIR = home
   process.env.PI_ACP_LAUNCH_SECRET_ROOT = accounts
   process.env.CLAUDE_CODE_OAUTH_TOKEN = 'fake-ambient-other-identity'
   process.env.ANTHROPIC_API_KEY = 'fake-ambient-key'
+  process.env.OPENAI_API_KEY = 'fake-openai-ambient-key'
+  process.env.AWS_PROFILE = 'fake-ambient-profile'
   process.env.CLAUDE_CONFIG_DIR = join(home, 'other-identity-claude-config')
   const children: PiRpcProcess[] = []
   t.after(async () => {
@@ -49,6 +60,8 @@ test('named RPC Pi receives only its selected account token; unassigned child do
       ['PI_ACP_LAUNCH_SECRET_ROOT', prevRoot],
       ['CLAUDE_CODE_OAUTH_TOKEN', prevToken],
       ['ANTHROPIC_API_KEY', prevApiKey],
+      ['OPENAI_API_KEY', prevOpenAIKey],
+      ['AWS_PROFILE', prevAwsProfile],
       ['CLAUDE_CONFIG_DIR', prevConfig],
       ['PI_TEST_CAPTURE', prevCapture]
     ] as const) {
@@ -72,12 +85,32 @@ test('named RPC Pi receives only its selected account token; unassigned child do
   const firstEnv = await captured(first)
   assert.equal(firstEnv.token, 'fake-selected-token')
   assert.equal(firstEnv.apiKey, undefined)
+  assert.equal(firstEnv.openaiKey, undefined)
+  assert.equal(firstEnv.awsProfile, undefined)
   assert.equal(firstEnv.config, join(home, 'claude-code'))
   const second = join(home, 'second.json')
   process.env.PI_TEST_CAPTURE = second
   children.push(await PiRpcProcess.spawn({ cwd: home, identity: identity(), agentDirectory: home, piCommand: fake }))
   const secondEnv = await captured(second)
   assert.equal(secondEnv.token, undefined)
+  assert.equal(secondEnv.apiKey, undefined)
+  assert.equal(secondEnv.openaiKey, undefined)
+  assert.equal(secondEnv.awsProfile, undefined)
+  assert.equal(secondEnv.config, undefined)
+  const assigned = join(home, 'assigned.json')
+  process.env.PI_TEST_CAPTURE = assigned
+  const explicit = spawnNamedPi(
+    fake,
+    [],
+    home,
+    { stdio: 'pipe', env: { OPENAI_API_KEY: 'fake-assigned-key' } },
+    identity()
+  )
+  try {
+    assert.equal((await captured(assigned)).openaiKey, 'fake-assigned-key')
+  } finally {
+    explicit.kill()
+  }
   assert.deepEqual(readdirSync(join(accounts, 'k1')), ['claude-setup-token'])
 })
 
@@ -86,6 +119,7 @@ test('TUI refuses to launch when the bridge has no token-readiness marker', asyn
   const oldRoot = process.env.PI_ACP_LAUNCH_SECRET_ROOT
   const oldCommand = process.env.PI_ACP_PI_COMMAND
   const oldData = process.env.PI_ACP_DIR
+  const oldOpenAIKey = process.env.OPENAI_API_KEY
   const accounts = join(home, 'accounts')
   mkdirSync(join(accounts, 'k1'), { recursive: true, mode: 0o700 })
   writeFileSync(join(accounts, 'k1', 'claude-setup-token'), 'fake-token\n', { mode: 0o600 })
@@ -93,17 +127,19 @@ test('TUI refuses to launch when the bridge has no token-readiness marker', asyn
   const tuiCalled = join(home, 'tui-called')
   writeFileSync(
     fake,
-    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nif(!process.argv.includes('--mode')){fs.writeFileSync('${tuiCalled}','called');process.exit(0)}\nprocess.stdin.on('data', part => { for (const line of part.toString().trim().split('\\n')) { const req=JSON.parse(line);if(req.type==='get_commands')process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:[]}})+'\\n') } });\nsetInterval(()=>{},1000);\n`,
+    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nif(!process.argv.includes('--mode')){fs.writeFileSync('${tuiCalled}',JSON.stringify({key:process.env.OPENAI_API_KEY,token:process.env.CLAUDE_CODE_OAUTH_TOKEN}));process.exit(0)}\nprocess.stdin.on('data', part => { for (const line of part.toString().trim().split('\\n')) { const req=JSON.parse(line);if(req.type==='get_commands')process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:[]}})+'\\n') } });\nsetInterval(()=>{},1000);\n`,
     { mode: 0o700 }
   )
   process.env.PI_ACP_LAUNCH_SECRET_ROOT = accounts
   process.env.PI_ACP_PI_COMMAND = fake
   process.env.PI_ACP_DIR = home
+  process.env.OPENAI_API_KEY = 'fake-ambient-openai-key'
   t.after(() => {
     for (const [name, value] of [
       ['PI_ACP_LAUNCH_SECRET_ROOT', oldRoot],
       ['PI_ACP_PI_COMMAND', oldCommand],
-      ['PI_ACP_DIR', oldData]
+      ['PI_ACP_DIR', oldData],
+      ['OPENAI_API_KEY', oldOpenAIKey]
     ] as const) {
       if (value === undefined) delete process.env[name]
       else process.env[name] = value
@@ -124,7 +160,7 @@ test('TUI refuses to launch when the bridge has no token-readiness marker', asyn
     await runNamedTui({ identityId: randomUUID(), agentDirectory: home, cwd: home, launchSecretAccount: 'k1' }),
     0
   )
-  assert.equal(existsSync(tuiCalled), true)
+  assert.deepEqual(JSON.parse(readFileSync(tuiCalled, 'utf8')), { token: 'fake-token' })
 })
 
 test('an unresponsive token-readiness probe times out closed', { timeout: 20000 }, async t => {

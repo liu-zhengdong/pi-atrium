@@ -387,11 +387,11 @@ export class PiRpcProcess {
       }
     }
 
-    const env = { ...process.env }
+    // Only explicit per-identity overrides go to spawnNamedPi; it sanitizes
+    // inherited provider credentials before applying these assigned values.
+    const env: NodeJS.ProcessEnv = {}
     if (params.agentDirectory) env.PI_CODING_AGENT_DIR = params.agentDirectory
     if (params.mcpProxyOnly) env.PI_MCP_TOOL_EXPOSURE = 'proxy-only'
-    // Named identities must not inherit another identity's ambient Claude token.
-    if (params.identity) delete env.CLAUDE_CODE_OAUTH_TOKEN
     let child: ChildProcessWithoutNullStreams
     try {
       if (params.launchSecretAccount !== undefined) {

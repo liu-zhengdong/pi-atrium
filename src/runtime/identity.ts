@@ -201,6 +201,15 @@ export function resolveIdentitySessionFile(identity: NamedIdentity, fallback?: s
   if (!fallback || fallback === recorded) return undefined
   return takeUsableSessionFile(fallback)
 }
+// Pi resolves model credentials from these variables (see pi-ai env-api-keys).
+// Only explicitly supplied per-identity overrides may reintroduce them.
+export function isInheritedModelCredential(name: string): boolean {
+  return (
+    /(?:_API_KEY|_TOKEN|_SECRET(?:_KEY)?|_ACCESS_KEY_ID)$/.test(name) ||
+    /^(?:AWS_|GOOGLE_|GCLOUD_|CLAUDE_|ANTHROPIC_|OPENAI_|AZURE_|CLOUDFLARE_|COPILOT_|HF_)/.test(name)
+  )
+}
+
 /** Shared by TUI and RPC. The lock belongs to the complete child lifetime, not ACP attachment. */
 export function spawnNamedPi(
   command: string,
@@ -212,12 +221,16 @@ export function spawnNamedPi(
   const invocation = buildPiInvocation(command, args, { cwd })
   if (!invocation) throw new Error(`Pi executable not found: ${command}`)
   const lease = identity ? claimIdentity(identity, cwd) : undefined
-  // Both callers pass a complete, deliberately scrubbed environment. Merging
-  // process.env here would reintroduce another identity's authentication.
-  const env = { ...(options.env ?? process.env) }
+  const env = { ...process.env }
+  if (identity) {
+    for (const key of Object.keys(env)) {
+      if (isInheritedModelCredential(key)) delete env[key]
+    }
+  }
+  // options.env contains only the identity's explicitly assigned overrides,
+  // not a copy of the launcher environment. Auth-file credentials are separate.
+  Object.assign(env, options.env)
   delete env[ENV]
-  // A named identity may receive only an explicitly selected launch token.
-  if (identity && !Object.hasOwn(options.env ?? {}, 'CLAUDE_CODE_OAUTH_TOKEN')) delete env.CLAUDE_CODE_OAUTH_TOKEN
   // The repository root belongs to the trusted launcher, never to an identity's tools.
   delete env[LAUNCH_SECRET_ROOT_ENV]
   if (identity) {
@@ -292,8 +305,7 @@ export async function runNamedTui(
     probe.dispose()
     await probe.whenTerminated()
   }
-  const env: NodeJS.ProcessEnv = { ...process.env, PI_MCP_TOOL_EXPOSURE: 'proxy-only' }
-  delete env.CLAUDE_CODE_OAUTH_TOKEN
+  const env: NodeJS.ProcessEnv = { PI_MCP_TOOL_EXPOSURE: 'proxy-only' }
   if (value.launchSecretAccount) applyLaunchSecret(env, value.launchSecretAccount, value.agentDirectory)
   const child = spawnNamedPi(
     getPiCommand(process.env.PI_ACP_PI_COMMAND),

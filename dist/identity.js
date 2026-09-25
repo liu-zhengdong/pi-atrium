@@ -779,10 +779,9 @@ var init_process = __esm({
           } catch {
           }
         };
-        const env = { ...process.env };
+        const env = {};
         if (params.agentDirectory) env.PI_CODING_AGENT_DIR = params.agentDirectory;
         if (params.mcpProxyOnly) env.PI_MCP_TOOL_EXPOSURE = "proxy-only";
-        if (params.identity) delete env.CLAUDE_CODE_OAUTH_TOKEN;
         let child;
         try {
           if (params.launchSecretAccount !== void 0) {
@@ -1399,13 +1398,21 @@ function resolveIdentitySessionFile(identity, fallback) {
   if (!fallback || fallback === recorded) return void 0;
   return takeUsableSessionFile(fallback);
 }
+function isInheritedModelCredential(name) {
+  return /(?:_API_KEY|_TOKEN|_SECRET(?:_KEY)?|_ACCESS_KEY_ID)$/.test(name) || /^(?:AWS_|GOOGLE_|GCLOUD_|CLAUDE_|ANTHROPIC_|OPENAI_|AZURE_|CLOUDFLARE_|COPILOT_|HF_)/.test(name);
+}
 function spawnNamedPi(command, args, cwd, options, identity) {
   const invocation = buildPiInvocation(command, args, { cwd });
   if (!invocation) throw new Error(`Pi executable not found: ${command}`);
   const lease = identity ? claimIdentity(identity, cwd) : void 0;
-  const env = { ...options.env ?? process.env };
+  const env = { ...process.env };
+  if (identity) {
+    for (const key of Object.keys(env)) {
+      if (isInheritedModelCredential(key)) delete env[key];
+    }
+  }
+  Object.assign(env, options.env);
   delete env[ENV];
-  if (identity && !Object.hasOwn(options.env ?? {}, "CLAUDE_CODE_OAUTH_TOKEN")) delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env[LAUNCH_SECRET_ROOT_ENV];
   if (identity) {
     env.PI_CODING_AGENT_DIR = identity.agentDirectory;
@@ -1467,8 +1474,7 @@ async function runNamedTui(value) {
     probe.dispose();
     await probe.whenTerminated();
   }
-  const env = { ...process.env, PI_MCP_TOOL_EXPOSURE: "proxy-only" };
-  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  const env = { PI_MCP_TOOL_EXPOSURE: "proxy-only" };
   if (value.launchSecretAccount) applyLaunchSecret(env, value.launchSecretAccount, value.agentDirectory);
   const child = spawnNamedPi(
     getPiCommand(process.env.PI_ACP_PI_COMMAND),
@@ -1512,6 +1518,7 @@ export {
   IDENTITY_MODEL_CAPABILITY,
   claimIdentity,
   identitySession,
+  isInheritedModelCredential,
   parseIdentity,
   processIdentity,
   rememberIdentitySession,
