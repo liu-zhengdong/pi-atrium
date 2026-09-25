@@ -1,21 +1,15 @@
 #!/usr/bin/env node
-
-// src/pi-rpc/acp-extension.ts
-import { randomUUID as randomUUID4 } from "crypto";
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
 
 // src/pi-rpc/mcp-servers.ts
-var MCP_COMMAND = "pi-acp-mcp";
-var MCP_WIDGET = "pi-acp-mcp-result";
-var MCP_REGISTER_EVENT = "pi-mcp-adapter:runtime-register:v1";
-var MAX_MCP_REQUEST_BYTES = 1024 * 1024;
-var McpConfigurationError = class extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-    this.name = "McpConfigurationError";
-  }
-  code;
-};
 function invalid(index, field) {
   throw new McpConfigurationError("INVALID_MCP_SERVERS", `MCP \u670D\u52A1 ${index + 1} \u7684 ${field} \u65E0\u6548`);
 }
@@ -85,8 +79,130 @@ function mcpDefinition(server) {
     directTools: false
   };
 }
+var MCP_COMMAND, MCP_WIDGET, MCP_REGISTER_EVENT, MAX_MCP_REQUEST_BYTES, McpConfigurationError;
+var init_mcp_servers = __esm({
+  "src/pi-rpc/mcp-servers.ts"() {
+    "use strict";
+    MCP_COMMAND = "pi-acp-mcp";
+    MCP_WIDGET = "pi-acp-mcp-result";
+    MCP_REGISTER_EVENT = "pi-mcp-adapter:runtime-register:v1";
+    MAX_MCP_REQUEST_BYTES = 1024 * 1024;
+    McpConfigurationError = class extends Error {
+      constructor(code, message) {
+        super(message);
+        this.code = code;
+        this.name = "McpConfigurationError";
+      }
+      code;
+    };
+  }
+});
+
+// src/acp/paths.ts
+import { homedir } from "os";
+import { join, resolve } from "path";
+function getPiAcpDir() {
+  return process.env.PI_ACP_DIR ? resolve(process.env.PI_ACP_DIR) : join(homedir(), ".pi", "pi-acp");
+}
+var init_paths = __esm({
+  "src/acp/paths.ts"() {
+    "use strict";
+  }
+});
+
+// src/pi-rpc/command.ts
+import { statSync } from "fs";
+import { platform as hostPlatform } from "os";
+import { win32 } from "path";
+var init_command = __esm({
+  "src/pi-rpc/command.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/launch-secret.ts
+import { lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, realpathSync } from "fs";
+import { isAbsolute, join as join3 } from "path";
+var init_launch_secret = __esm({
+  "src/runtime/launch-secret.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/identity.ts
+import { spawn } from "child_process";
+import { randomUUID as randomUUID2 } from "crypto";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync as mkdirSync3,
+  openSync,
+  readFileSync as readFileSync3,
+  readSync,
+  realpathSync as realpathSync2,
+  renameSync,
+  rmdirSync,
+  statSync as statSync2,
+  unlinkSync,
+  writeFileSync
+} from "fs";
+import { isAbsolute as isAbsolute2, join as join4 } from "path";
+function parseIdentity(value) {
+  if (!value || typeof value !== "object") throw new Error("Invalid named identity");
+  const { identityId, agentDirectory } = value;
+  if (typeof identityId !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(identityId))
+    throw new Error("Invalid identityId");
+  if (typeof agentDirectory !== "string" || !isAbsolute2(agentDirectory) || !statSync2(agentDirectory).isDirectory())
+    throw new Error("agentDirectory must be an existing absolute directory");
+  return { identityId, agentDirectory: realpathSync2(agentDirectory) };
+}
+function files(identity) {
+  const root = join4(getPiAcpDir(), "identities");
+  mkdirSync3(root, { recursive: true, mode: 448 });
+  const base = join4(root, identity.identityId);
+  return { owner: `${base}.json`, guard: `${base}.guard`, cursor: `${base}.cursor.json` };
+}
+function writeAtomic(path, value) {
+  const temp = `${path}.${randomUUID2()}.tmp`;
+  writeFileSync(temp, JSON.stringify(value), { mode: 384, flag: "wx" });
+  renameSync(temp, path);
+}
+function processIdentity() {
+  const globals = globalThis;
+  if (globals[bindingKey] !== void 0) return globals[bindingKey];
+  const raw = process.env[ENV];
+  delete process.env[ENV];
+  let identity = null;
+  if (raw) {
+    const pointer = JSON.parse(raw);
+    const owner = JSON.parse(readFileSync3(pointer.path, "utf8"));
+    if (owner.nonce === pointer.nonce && owner.childPid === process.pid) identity = parseIdentity(owner);
+  }
+  globals[bindingKey] = identity;
+  return identity;
+}
+function rememberIdentitySession(identity, sessionFile, runtimeId) {
+  writeAtomic(files(identity).cursor, { ...identity, sessionFile, runtimeId });
+}
+var bindingKey, ENV, SESSION_HEADER_SCAN;
+var init_identity = __esm({
+  "src/runtime/identity.ts"() {
+    "use strict";
+    init_paths();
+    init_command();
+    init_launch_secret();
+    init_launch_secret();
+    bindingKey = /* @__PURE__ */ Symbol.for("@liuser/pi-acp/named-identity/v1");
+    ENV = "PI_ACP_NAMED_OWNER";
+    SESSION_HEADER_SCAN = 1024 * 1024;
+  }
+});
+
+// src/pi-rpc/acp-extension.ts
+import { randomUUID as randomUUID4 } from "crypto";
 
 // src/pi-rpc/mcp-extension.ts
+init_mcp_servers();
 var contextEntries = (ctx) => ctx.sessionManager?.buildContextEntries?.() ?? ctx.sessionManager?.getBranch?.() ?? [];
 function registerMcpBridge(pi) {
   let generation = 0;
@@ -285,21 +401,14 @@ import { createServer } from "net";
 import { agent, PROTOCOL_VERSION as PROTOCOL_VERSION2 } from "@agentclientprotocol/sdk";
 
 // src/runtime/transport.ts
+init_paths();
+init_mcp_servers();
 import { randomUUID } from "crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "fs";
 import { join as join2 } from "path";
 import { connect } from "net";
 import { Duplex } from "stream";
 import { client, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
-
-// src/acp/paths.ts
-import { homedir } from "os";
-import { join, resolve } from "path";
-function getPiAcpDir() {
-  return process.env.PI_ACP_DIR ? resolve(process.env.PI_ACP_DIR) : join(homedir(), ".pi", "pi-acp");
-}
-
-// src/runtime/transport.ts
 var RUNTIME_CAPABILITY = "pi-acp/runtime/v1";
 var runtimeMethods = {
   list: "_pi/runtime/list",
@@ -407,73 +516,8 @@ function resultText(value) {
   return content.filter((item) => item?.type === "text" && typeof item.text === "string").map((item) => item.text).join("\n");
 }
 
-// src/runtime/identity.ts
-import { spawn } from "child_process";
-import { randomUUID as randomUUID2 } from "crypto";
-import {
-  closeSync,
-  existsSync,
-  mkdirSync as mkdirSync2,
-  openSync,
-  readFileSync as readFileSync2,
-  readSync,
-  realpathSync,
-  renameSync,
-  rmdirSync,
-  statSync as statSync2,
-  unlinkSync,
-  writeFileSync
-} from "fs";
-import { isAbsolute, join as join3 } from "path";
-
-// src/pi-rpc/command.ts
-import { statSync } from "fs";
-import { platform as hostPlatform } from "os";
-import { win32 } from "path";
-
-// src/runtime/identity.ts
-var bindingKey = /* @__PURE__ */ Symbol.for("@liuser/pi-acp/named-identity/v1");
-var ENV = "PI_ACP_NAMED_OWNER";
-function parseIdentity(value) {
-  if (!value || typeof value !== "object") throw new Error("Invalid named identity");
-  const { identityId, agentDirectory } = value;
-  if (typeof identityId !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(identityId))
-    throw new Error("Invalid identityId");
-  if (typeof agentDirectory !== "string" || !isAbsolute(agentDirectory) || !statSync2(agentDirectory).isDirectory())
-    throw new Error("agentDirectory must be an existing absolute directory");
-  return { identityId, agentDirectory: realpathSync(agentDirectory) };
-}
-function files(identity) {
-  const root = join3(getPiAcpDir(), "identities");
-  mkdirSync2(root, { recursive: true, mode: 448 });
-  const base = join3(root, identity.identityId);
-  return { owner: `${base}.json`, guard: `${base}.guard`, cursor: `${base}.cursor.json` };
-}
-function writeAtomic(path, value) {
-  const temp = `${path}.${randomUUID2()}.tmp`;
-  writeFileSync(temp, JSON.stringify(value), { mode: 384, flag: "wx" });
-  renameSync(temp, path);
-}
-function processIdentity() {
-  const globals = globalThis;
-  if (globals[bindingKey] !== void 0) return globals[bindingKey];
-  const raw = process.env[ENV];
-  delete process.env[ENV];
-  let identity = null;
-  if (raw) {
-    const pointer = JSON.parse(raw);
-    const owner = JSON.parse(readFileSync2(pointer.path, "utf8"));
-    if (owner.nonce === pointer.nonce && owner.childPid === process.pid) identity = parseIdentity(owner);
-  }
-  globals[bindingKey] = identity;
-  return identity;
-}
-function rememberIdentitySession(identity, sessionFile, runtimeId) {
-  writeAtomic(files(identity).cursor, { ...identity, sessionFile, runtimeId });
-}
-var SESSION_HEADER_SCAN = 1024 * 1024;
-
 // src/runtime/extension.ts
+init_identity();
 var IMAGE_TYPES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 var MAX_IMAGES = 10;
 var MAX_IMAGE_BYTES = 10 * 1024 * 1024;

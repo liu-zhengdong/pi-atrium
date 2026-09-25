@@ -17,6 +17,8 @@ import {
 import { isAbsolute, join } from 'node:path'
 import { getPiAcpDir } from '../acp/paths.js'
 import { buildPiInvocation, getPiCommand } from '../pi-rpc/command.js'
+import { LAUNCH_SECRET_ROOT_ENV, applyLaunchSecret } from './launch-secret.js'
+export { IDENTITY_LAUNCH_SECRET_CAPABILITY } from './launch-secret.js'
 
 export type NamedIdentity = { identityId: string; agentDirectory: string }
 type Owner = NamedIdentity & { nonce: string; launcherPid: number; childPid: number | null; cwd: string }
@@ -210,8 +212,14 @@ export function spawnNamedPi(
   const invocation = buildPiInvocation(command, args, { cwd })
   if (!invocation) throw new Error(`Pi executable not found: ${command}`)
   const lease = identity ? claimIdentity(identity, cwd) : undefined
-  const env = { ...process.env, ...options.env }
+  // Both callers pass a complete, deliberately scrubbed environment. Merging
+  // process.env here would reintroduce another identity's authentication.
+  const env = { ...(options.env ?? process.env) }
   delete env[ENV]
+  // A named identity may receive only an explicitly selected launch token.
+  if (identity && !Object.hasOwn(options.env ?? {}, 'CLAUDE_CODE_OAUTH_TOKEN')) delete env.CLAUDE_CODE_OAUTH_TOKEN
+  // The repository root belongs to the trusted launcher, never to an identity's tools.
+  delete env[LAUNCH_SECRET_ROOT_ENV]
   if (identity) {
     env.PI_CODING_AGENT_DIR = identity.agentDirectory
     env.PI_CODING_AGENT_SESSION_DIR = join(identity.agentDirectory, 'sessions')
@@ -256,7 +264,12 @@ export function spawnNamedPi(
 }
 
 export async function runNamedTui(
-  value: NamedIdentity & { cwd: string; sessionFile?: string; model?: string }
+  value: NamedIdentity & {
+    cwd: string
+    sessionFile?: string
+    model?: string
+    launchSecretAccount?: string
+  }
 ): Promise<number> {
   const identity = parseIdentity(value)
   const sessionFile = resolveIdentitySessionFile(identity, value.sessionFile)
@@ -264,11 +277,29 @@ export async function runNamedTui(
   if (sessionFile) args.push('--session', sessionFile)
   // A resumed session carries its own model_change records; only --model overrides them.
   if (value.model) args.push('--model', value.model)
+  if (value.launchSecretAccount) {
+    // TUI does not pass through the ACP session manager. Probe the same named
+    // identity via RPC first, before opening an interactive TUI that might
+    // otherwise use a stale bridge version and the machine's Claude login.
+    const { PiRpcProcess } = await import('../pi-rpc/process.js')
+    const probe = await PiRpcProcess.spawn({
+      cwd: value.cwd,
+      agentDirectory: identity.agentDirectory,
+      identity,
+      launchSecretAccount: value.launchSecretAccount,
+      piCommand: getPiCommand(process.env.PI_ACP_PI_COMMAND)
+    })
+    probe.dispose()
+    await probe.whenTerminated()
+  }
+  const env: NodeJS.ProcessEnv = { ...process.env, PI_MCP_TOOL_EXPOSURE: 'proxy-only' }
+  delete env.CLAUDE_CODE_OAUTH_TOKEN
+  if (value.launchSecretAccount) applyLaunchSecret(env, value.launchSecretAccount, value.agentDirectory)
   const child = spawnNamedPi(
     getPiCommand(process.env.PI_ACP_PI_COMMAND),
     args,
     value.cwd,
-    { stdio: 'inherit', env: { ...process.env, PI_MCP_TOOL_EXPOSURE: 'proxy-only' } },
+    { stdio: 'inherit', env },
     identity
   )
   const forward = (signal: NodeJS.Signals) => {

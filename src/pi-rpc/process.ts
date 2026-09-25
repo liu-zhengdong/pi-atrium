@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { spawnNamedPi, type NamedIdentity } from '../runtime/identity.js'
+import { applyLaunchSecret } from '../runtime/launch-secret.js'
 import { randomUUID } from 'node:crypto'
 import { MCP_COMMAND, MCP_WIDGET, McpConfigurationError, type McpServer } from './mcp-servers.js'
 import { existsSync, mkdirSync, writeFileSync, statSync, unlinkSync } from 'node:fs'
@@ -101,6 +102,8 @@ type SpawnParams = {
   cwd: string
   agentDirectory?: string
   identity?: NamedIdentity
+  /** Account reference only; the secret never crosses ACP or enters the shared parent's env. */
+  launchSecretAccount?: string
   /** 为带外部 MCP 的子进程选择固定代理，不修改父进程或配置文件。 */
   mcpProxyOnly?: boolean
   sessionDirectory?: string
@@ -387,8 +390,14 @@ export class PiRpcProcess {
     const env = { ...process.env }
     if (params.agentDirectory) env.PI_CODING_AGENT_DIR = params.agentDirectory
     if (params.mcpProxyOnly) env.PI_MCP_TOOL_EXPOSURE = 'proxy-only'
+    // Named identities must not inherit another identity's ambient Claude token.
+    if (params.identity) delete env.CLAUDE_CODE_OAUTH_TOKEN
     let child: ChildProcessWithoutNullStreams
     try {
+      if (params.launchSecretAccount !== undefined) {
+        if (!params.identity) throw new Error('Launch secret requires a named identity')
+        applyLaunchSecret(env, params.launchSecretAccount, params.identity.agentDirectory)
+      }
       child = spawnNamedPi(
         cmd,
         args,
@@ -450,10 +459,29 @@ export class PiRpcProcess {
       throw new PiRpcSpawnError(`Could not start pi (command: ${cmd}).`, { code, cause: e })
     }
 
-    // No hidden handshake: spawn returns as soon as the OS process exists so
-    // the caller owns the child immediately. Authoritative get_state
-    // validation (and session-dir setup) happens in SessionManager.create /
-    // PiAcpAgent.restoreSession, which also own failure disposal.
+    // Only token launches require an extension handshake. Old bridge versions
+    // silently ignore the token and can use the machine's Claude login; never
+    // expose such a child to its owner or let it handle a prompt.
+    if (params.launchSecretAccount !== undefined) {
+      try {
+        const commands = (await proc.getCommands(10_000)) as { commands?: Array<{ name?: unknown }> }
+        if (
+          !Array.isArray(commands.commands) ||
+          !commands.commands.some(command => command.name === 'claude-bridge-token-ready-v1')
+        )
+          throw new Error('Claude bridge did not advertise token readiness')
+      } catch (error) {
+        proc.dispose({ expected: false })
+        await proc.whenTerminated()
+        cleanupEmptySession()
+        throw new Error(
+          '独立令牌就绪检查未获肯定回应，已拒绝启动。升级此身份的 claude-bridge：pi install git:github.com/liu-zhengdong/pi-claude-bridge@<新版提交>；然后重启身份',
+          { cause: error }
+        )
+      }
+    }
+    // Non-token launches return as soon as the OS process exists; the caller
+    // owns the child immediately. SessionManager validates get_state later.
     return proc
   }
 
@@ -844,8 +872,8 @@ export class PiRpcProcess {
     return res.data
   }
 
-  async getCommands(): Promise<unknown> {
-    return this.call({ type: 'get_commands' })
+  async getCommands(timeoutMs?: number): Promise<unknown> {
+    return this.call({ type: 'get_commands' }, timeoutMs)
   }
 
   async sendExtensionUiResponse(response: PiExtensionUiResponse): Promise<void> {
