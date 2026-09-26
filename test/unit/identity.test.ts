@@ -104,6 +104,42 @@ test('named identity: lifetime lock, hostile inputs, child inheritance and isola
   assert.throws(() => identitySession({ ...a, agentDirectory: join(root, 'other') }), /mismatch/)
 })
 
+test('identity child gets fake account token but not the trusted account root', async t => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'pi-identity-secret-')))
+  const oldRoot = process.env.PI_ACP_LAUNCH_SECRET_ROOT
+  const oldData = process.env.PI_ACP_DIR
+  process.env.PI_ACP_DIR = home
+  const accounts = join(home, 'accounts')
+  mkdirSync(join(accounts, 'k2'), { recursive: true })
+  writeFileSync(join(accounts, 'k2', 'claude-setup-token'), 'fake-setup-token', { mode: 0o600 })
+  process.env.PI_ACP_LAUNCH_SECRET_ROOT = accounts
+  t.after(() => {
+    if (oldRoot === undefined) delete process.env.PI_ACP_LAUNCH_SECRET_ROOT
+    else process.env.PI_ACP_LAUNCH_SECRET_ROOT = oldRoot
+    if (oldData === undefined) delete process.env.PI_ACP_DIR
+    else process.env.PI_ACP_DIR = oldData
+    rmSync(home, { recursive: true, force: true })
+  })
+  const identity = { identityId: randomUUID(), agentDirectory: home }
+  const child = spawnNamedPi(
+    process.execPath,
+    [
+      '-e',
+      'console.log(JSON.stringify({ token: process.env.CLAUDE_CODE_OAUTH_TOKEN === "fake-setup-token", root: process.env.PI_ACP_LAUNCH_SECRET_ROOT }))'
+    ],
+    home,
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { CLAUDE_CODE_OAUTH_TOKEN: 'fake-setup-token' } },
+    identity
+  )
+  let output = ''
+  child.stdout!.on('data', chunk => {
+    output += String(chunk)
+  })
+  await once(child, 'close')
+  assert.equal(child.exitCode, 0)
+  assert.deepEqual(JSON.parse(output), { token: true })
+})
+
 test('named identity: skip invalid session files and start fresh', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-identity-session-')))
   const old = process.env.PI_ACP_DIR

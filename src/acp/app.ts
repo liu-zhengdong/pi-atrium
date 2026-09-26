@@ -12,6 +12,7 @@ import { PiAcpAgent, runPromptWithCancellation } from './agent.js'
 import { ClientConnection } from './client.js'
 import { RuntimeGateway } from '../runtime/gateway.js'
 import { IDENTITY_CAPABILITY, IDENTITY_MODEL_CAPABILITY } from '../runtime/identity.js'
+import { IDENTITY_LAUNCH_SECRET_CAPABILITY } from '../runtime/launch-secret.js'
 import { object, string, RUNTIME_CAPABILITY, runtimeMethods } from '../runtime/transport.js'
 import { SessionRepository } from './session-repository.js'
 
@@ -115,7 +116,8 @@ export function createPiAcpAgentApp(opts?: { onAgent?: (agent: PiAcpAgent | null
             [RUNTIME_CAPABILITY]: true,
             [EVENTS_CAPABILITY]: true,
             [IDENTITY_CAPABILITY]: true,
-            [IDENTITY_MODEL_CAPABILITY]: true
+            [IDENTITY_MODEL_CAPABILITY]: true,
+            [IDENTITY_LAUNCH_SECRET_CAPABILITY]: true
           }
         }
       } catch (error) {

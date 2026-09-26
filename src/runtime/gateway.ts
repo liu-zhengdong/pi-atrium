@@ -32,6 +32,7 @@ export class RuntimeGateway {
   private closed = false
   private children = new Set<PiRpcProcess>()
   private namedChildren = new Map<string, PiRpcProcess>()
+  private pendingIdentities = new Set<string>()
   async stop(value: unknown) {
     const id = uuid(object(value).identityId),
       proc = this.namedChildren.get(id)
@@ -84,10 +85,26 @@ export class RuntimeGateway {
     }
   }
   private async launch(value: unknown): Promise<{ runtimeId: string }> {
-    const params = object(value),
-      identity = parseIdentity(params),
+    const params = object(value)
+    const accepted = new Set(['identityId', 'agentDirectory', 'cwd', 'sessionFile', 'model', 'launchSecretAccount'])
+    const unknown = Object.keys(params).find(key => !accepted.has(key))
+    if (unknown) throw new Error(`Unknown identity start parameter: ${unknown}`)
+    const identity = parseIdentity(params),
       cwd = string(params.cwd)
     if (this.closed) throw new Error('ACP connection closing')
+    if (this.pendingIdentities.has(identity.identityId)) throw new Error('Identity launch is already pending')
+    this.pendingIdentities.add(identity.identityId)
+    try {
+      return await this.launchPending(identity, cwd, params)
+    } finally {
+      this.pendingIdentities.delete(identity.identityId)
+    }
+  }
+  private async launchPending(
+    identity: ReturnType<typeof parseIdentity>,
+    cwd: string,
+    params: Record<string, unknown>
+  ): Promise<{ runtimeId: string }> {
     const sessionPath = resolveIdentitySessionFile(
       identity,
       params.sessionFile ? string(params.sessionFile) : undefined
@@ -96,6 +113,9 @@ export class RuntimeGateway {
       cwd,
       identity,
       agentDirectory: identity.agentDirectory,
+      ...(params.launchSecretAccount === undefined
+        ? {}
+        : { launchSecretAccount: string(params.launchSecretAccount, 32) }),
       sessionDirectory: join(identity.agentDirectory, 'sessions'),
       sessionPath,
       ...(params.model === undefined ? {} : { model: string(params.model, 200) }),
@@ -104,7 +124,6 @@ export class RuntimeGateway {
       signal: this.abort.signal,
       onProcess: proc => {
         this.children.add(proc)
-        this.namedChildren.set(identity.identityId, proc)
         proc.onTermination(() => {
           this.children.delete(proc)
           if (this.namedChildren.get(identity.identityId) === proc) this.namedChildren.delete(identity.identityId)
@@ -115,8 +134,9 @@ export class RuntimeGateway {
     try {
       await proc.getState()
       if (this.closed) throw new Error('ACP connection closed during launch')
-      const record = this.list().runtimes.find(r => r.identityId === identity.identityId && r.ownerPid === process.pid)
+      const record = discoverRuntimes().find(r => r.identityId === identity.identityId && r.ownerPid === process.pid)
       if (!record) throw new Error('Named runtime did not register its identity')
+      this.namedChildren.set(identity.identityId, proc)
       return { runtimeId: record.runtimeId }
     } catch (error) {
       proc.dispose()
@@ -124,7 +144,11 @@ export class RuntimeGateway {
     }
   }
   list() {
-    return { runtimes: discoverRuntimes() }
+    return {
+      runtimes: discoverRuntimes().filter(
+        r => !(r.ownerPid === process.pid && this.pendingIdentities.has(r.identityId ?? ''))
+      )
+    }
   }
   async attach(value: unknown): Promise<RuntimeStatus> {
     const params = object(value)
@@ -133,6 +157,9 @@ export class RuntimeGateway {
         ? uuid(params.runtimeId)
         : this.list().runtimes.find(r => r.mode === 'rpc' && r.sessionId === string(params.sessionId))?.runtimeId
     if (!id) throw new Error('No owned runtime for this session')
+    const pending = discoverRuntimes().find(r => r.runtimeId === id && r.ownerPid === process.pid)
+    if (pending && this.pendingIdentities.has(pending.identityId ?? ''))
+      throw new Error('Identity launch readiness is still being checked')
     if (this.closed || this.attaching.has(id) || this.peers.has(id))
       throw new Error('Runtime already attached or connection closing')
     if (this.peers.size + this.attaching.size >= 64) throw new Error('Runtime attachment limit reached')
