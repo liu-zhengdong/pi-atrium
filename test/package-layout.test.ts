@@ -24,6 +24,7 @@ test('合集声明可安装的扩展入口', () => {
     './adapter/index.ts',
     './dist/pi-extension.js',
     './dist/rollover.js',
+    './dist/hosted-tools.js',
     './notes/src/index.ts'
   ])
   for (const entry of pkg.pi.extensions) {
