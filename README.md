@@ -5,6 +5,7 @@ Atrium 的 Pi 侧合集，也是可单独使用的 Pi 包。一次安装包含�
 - **ACP**：把 [`pi`](https://github.com/earendil-works/pi) 接到 [ACP](https://agentclientprotocol.com/overview/introduction) 客户端（CLI 仍为 `pi-acp`）
 - **MCP 代理**：固定代理模式，业务工具不打进模型 tools（`adapter/`）
 - **笔记**：Markdown / Obsidian 库的渐进披露（`notes/`）
+- **搜索与生图**：当前模型为 `openai-codex` 或 `xai` 时出现对应的联网搜索、生图工具（见[搜索与生图工具](#搜索与生图工具按-provider-出现)）
 
 ```bash
 pi install git:github.com/liu-zhengdong/pi-atrium
@@ -219,6 +220,26 @@ PI_ACP_MCP_EXTENSION=/absolute/path/to/pi-mcp-adapter/index.ts npm run smoke:run
 尾巴至少保留切点之后的最后一个回合：整回合超过预算时按整个回合带走。确认框写明当前会话体量、新会话带走的组成与体量。会话从来没有压缩过、也没有上一代接续正文时，切点之前的历史只留在旧文件里，确认框会提醒这一点。
 
 Pi 把会话替换限定在用户主动执行的命令上下文里，所以这里不做自动切换；切换前会先给出体量和取舍让用户确认。
+
+### 搜索与生图工具（按 provider 出现）
+
+当前模型的 provider 决定出现哪几个工具，切换模型时活动工具集合随之更换，其他扩展的工具不受影响：
+
+| 当前 provider  | 工具             | 作用                                                                   |
+| -------------- | ---------------- | ---------------------------------------------------------------------- |
+| `openai-codex` | `codex_search`   | 经 Codex 搜索后端（`/backend-api/codex/alpha/search`）联网搜索         |
+| `openai-codex` | `codex_image`    | 经 Codex Images（`/backend-api/codex/images/*`）生图；传 `images` 改图 |
+| `xai`          | `xai_web_search` | 另发一个 Grok Responses 请求，只挂服务端 `web_search`                  |
+| `xai`          | `xai_x_search`   | 同上，只挂服务端 `x_search`，可按日期和账号过滤                        |
+| `xai`          | `xai_image`      | 经 `api.x.ai/v1/images/*` 生图；传 `images`（png/jpg，最多 3 张）改图  |
+
+其他 provider（包括插件自带的 `xai-auth`）下这五个工具都不在活动集里；万一在切换间隙被调用，也会直接拒绝而不发请求。主对话仍走 Pi 自带协议，工具只是另发请求。
+
+- 登录沿用 Pi 自己的凭据：`/login` 登录 OpenAI (ChatGPT Plus/Pro) 或 xAI（xAI 也可用 `XAI_API_KEY`）。工具每次调用都经 Pi 的 `modelRegistry.getProviderAuth()` 现取令牌，令牌临近过期时由 Pi 在凭据锁内刷新并写回；遇到 401/403 会再取一次，拿到新令牌才重试一次。令牌不写日志、不落盘、不进工具结果或报错。
+- 生成的图片保存到工作目录下 `.pi/generated-images/`（`codex-image-*` / `xai-image-*`），工具结果只返回绝对路径，要看图再用 `read`。
+- 改图输入是本地文件路径（相对路径按工作目录解析），按文件头校验格式；Codex 接受 png/jpg/webp/gif，每张不超过 20MB、最多 5 张；xAI 接受 png/jpg，每张不超过 8MB。
+- 失败会说明原因：未登录、刷新失败、鉴权失败、限流（429）、服务端错误、超时、响应格式变化等，并提示下一步。
+- 不提供代码执行、图转视频、深度研究、多代理研究等其他托管能力。与 `pi-better-openai`、`pi-xai-oauth` 同装时功能重复，二选一。
 
 ### Environment variables
 

@@ -9,6 +9,7 @@
 - 根目录：ACP 适配器、命名身份、运行时发现（原 `pi-acp`）。CLI 仍为 `pi-acp`。
 - `adapter/`：MCP 固定代理（原 `pi-mcp-adapter`）。
 - `notes/`：Markdown 笔记渐进披露（原 `pi-notes`）。
+- `src/hosted-tools/`：按当前 provider 出现的搜索与生图工具（`openai-codex`、`xai`），令牌经 Pi 的 `modelRegistry` 现取。
 
 `package.json` 的 `pi.extensions` 按该顺序加载。接入缺口在本仓库补齐；Atrium 以 git 依赖消费，不在产品仓再放一份源码。
 

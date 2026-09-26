@@ -6,6 +6,7 @@ export default defineConfig({
     'acp-extension': 'src/pi-rpc/acp-extension.ts',
     'pi-extension': 'src/runtime/extension.ts',
     rollover: 'src/rollover/extension.ts',
+    'hosted-tools': 'src/hosted-tools/extension.ts',
     identity: 'src/runtime/identity.ts'
   },
   format: ['esm'],

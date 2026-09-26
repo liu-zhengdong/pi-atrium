@@ -36,6 +36,7 @@
       "./adapter/index.ts",
       "./dist/pi-extension.js",
       "./dist/rollover.js",
+      "./dist/hosted-tools.js",
       "./notes/src/index.ts"
     ]
   },
