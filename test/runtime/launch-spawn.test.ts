@@ -4,6 +4,26 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+const fakeBridgeHandshake = String.raw`
+const net=require('net');
+const socketPath=process.env.PI_ATRIUM_LAUNCH_SECRET_SOCKET;
+let delivered;
+let ready=!socketPath||!globalThis.fakeBridge;
+let pending=[];
+function response(req){if(req.type==='get_commands') process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:globalThis.fakeBridge?[{name:'claude-bridge-token-ready-v1'}]:[]}})+'\n')}
+function finish(){ready=true;globalThis.onBridgeReady?.();for(const req of pending)response(req);pending=[]}
+if(socketPath&&globalThis.fakeBridge){
+  const socket=net.createConnection(socketPath);
+  let payload='';
+  socket.on('connect',()=>socket.write('READY claude-bridge-token-ready-v1 '+process.env.PI_ATRIUM_LAUNCH_SECRET_CHALLENGE+'\n'));
+  socket.on('data',part=>{payload+=part.toString()});
+  socket.on('end',()=>{delivered=payload.trim();finish()});
+  socket.on('error',()=>finish());
+}
+process.stdin.on('data',part=>{for(const line of part.toString().trim().split('\n')){if(!line)continue;const req=JSON.parse(line);if(ready)response(req);else pending.push(req)}});
+if(ready) finish();
+`
 import { PiRpcProcess } from '../../src/pi-rpc/process.js'
 import { RuntimeGateway } from '../../src/runtime/gateway.js'
 import { runNamedTui, spawnNamedPi } from '../../src/runtime/identity.js'
@@ -15,6 +35,7 @@ async function captured(file: string): Promise<{
   apiKey?: string
   openaiKey?: string
   awsProfile?: string
+  delivered?: string
 }> {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'))
@@ -39,7 +60,7 @@ test('named RPC Pi receives only its selected account token; unassigned child do
   const fake = join(home, 'fake-pi')
   writeFileSync(
     fake,
-    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nfs.writeFileSync(process.env.PI_TEST_CAPTURE, JSON.stringify({token:process.env.CLAUDE_CODE_OAUTH_TOKEN,root:process.env.PI_ACP_LAUNCH_SECRET_ROOT,config:process.env.CLAUDE_CONFIG_DIR,apiKey:process.env.ANTHROPIC_API_KEY,openaiKey:process.env.OPENAI_API_KEY,awsProfile:process.env.AWS_PROFILE}));\nprocess.stdin.on('data', part => { for (const line of part.toString().trim().split('\\n')) { const req=JSON.parse(line); if(req.type==='get_commands') process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:[{name:'claude-bridge-token-ready-v1'}]}})+'\\n') } });\nsetInterval(()=>{},1000);\n`,
+    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nglobalThis.fakeBridge=true;\nglobalThis.onBridgeReady=()=>fs.writeFileSync(process.env.PI_TEST_CAPTURE, JSON.stringify({token:process.env.CLAUDE_CODE_OAUTH_TOKEN,delivered,root:process.env.PI_ACP_LAUNCH_SECRET_ROOT,config:process.env.CLAUDE_CONFIG_DIR,apiKey:process.env.ANTHROPIC_API_KEY,openaiKey:process.env.OPENAI_API_KEY,awsProfile:process.env.AWS_PROFILE}));\n${fakeBridgeHandshake}\nsetInterval(()=>{},1000);\n`,
     { mode: 0o700 }
   )
   process.env.PI_ACP_DIR = home
@@ -83,7 +104,9 @@ test('named RPC Pi receives only its selected account token; unassigned child do
     })
   )
   const firstEnv = await captured(first)
-  assert.equal(firstEnv.token, 'fake-selected-token')
+  assert.equal(firstEnv.token, undefined)
+  assert.equal(firstEnv.delivered, 'fake-selected-token')
+  assert.equal(firstEnv.root, undefined)
   assert.equal(firstEnv.apiKey, undefined)
   assert.equal(firstEnv.openaiKey, undefined)
   assert.equal(firstEnv.awsProfile, undefined)
@@ -93,6 +116,7 @@ test('named RPC Pi receives only its selected account token; unassigned child do
   children.push(await PiRpcProcess.spawn({ cwd: home, identity: identity(), agentDirectory: home, piCommand: fake }))
   const secondEnv = await captured(second)
   assert.equal(secondEnv.token, undefined)
+  assert.equal(secondEnv.delivered, undefined)
   assert.equal(secondEnv.apiKey, undefined)
   assert.equal(secondEnv.openaiKey, undefined)
   assert.equal(secondEnv.awsProfile, undefined)
@@ -125,11 +149,8 @@ test('TUI refuses to launch when the bridge has no token-readiness marker', asyn
   writeFileSync(join(accounts, 'k1', 'claude-setup-token'), 'fake-token\n', { mode: 0o600 })
   const fake = join(home, 'fake-pi')
   const tuiCalled = join(home, 'tui-called')
-  writeFileSync(
-    fake,
-    `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nif(!process.argv.includes('--mode')){fs.writeFileSync('${tuiCalled}',JSON.stringify({key:process.env.OPENAI_API_KEY,token:process.env.CLAUDE_CODE_OAUTH_TOKEN}));process.exit(0)}\nprocess.stdin.on('data', part => { for (const line of part.toString().trim().split('\\n')) { const req=JSON.parse(line);if(req.type==='get_commands')process.stdout.write(JSON.stringify({type:'response',id:req.id,command:'get_commands',success:true,data:{commands:[]}})+'\\n') } });\nsetInterval(()=>{},1000);\n`,
-    { mode: 0o700 }
-  )
+  const oldFake = `#!/usr/bin/env node\nconst fs=require('fs');\nif(process.argv.includes('--version')){console.log('0.85.1');process.exit(0)}\nconst mode=process.argv.includes('--mode');\nglobalThis.fakeBridge=false;\nglobalThis.onBridgeReady=()=>{if(!mode){fs.writeFileSync('${tuiCalled}',JSON.stringify({key:process.env.OPENAI_API_KEY,token:process.env.CLAUDE_CODE_OAUTH_TOKEN,delivered}));process.exit(0)}};\n${fakeBridgeHandshake}\nif(mode)setInterval(()=>{},1000);\n`
+  writeFileSync(fake, oldFake, { mode: 0o700 })
   process.env.PI_ACP_LAUNCH_SECRET_ROOT = accounts
   process.env.PI_ACP_PI_COMMAND = fake
   process.env.PI_ACP_DIR = home
@@ -151,16 +172,12 @@ test('TUI refuses to launch when the bridge has no token-readiness marker', asyn
     /claude-bridge/
   )
   assert.equal(existsSync(tuiCalled), false)
-  writeFileSync(
-    fake,
-    readFileSync(fake, 'utf8').replace('commands:[]', 'commands:[{name:"claude-bridge-token-ready-v1"}]'),
-    { mode: 0o700 }
-  )
+  writeFileSync(fake, oldFake.replace('globalThis.fakeBridge=false', 'globalThis.fakeBridge=true'), { mode: 0o700 })
   assert.equal(
     await runNamedTui({ identityId: randomUUID(), agentDirectory: home, cwd: home, launchSecretAccount: 'k1' }),
     0
   )
-  assert.deepEqual(JSON.parse(readFileSync(tuiCalled, 'utf8')), { token: 'fake-token' })
+  assert.deepEqual(JSON.parse(readFileSync(tuiCalled, 'utf8')), { delivered: 'fake-token' })
 })
 
 test('an unresponsive token-readiness probe times out closed', { timeout: 20000 }, async t => {

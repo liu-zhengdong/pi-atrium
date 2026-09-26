@@ -17,7 +17,8 @@ import {
 import { isAbsolute, join } from 'node:path'
 import { getPiAcpDir } from '../acp/paths.js'
 import { buildPiInvocation, getPiCommand } from '../pi-rpc/command.js'
-import { LAUNCH_SECRET_ROOT_ENV, applyLaunchSecret } from './launch-secret.js'
+import { LAUNCH_SECRET_ROOT_ENV } from './launch-secret.js'
+import { createLaunchSecretBroker, prepareLaunchSecretEnvironment } from './launch-secret-broker.js'
 export { IDENTITY_LAUNCH_SECRET_CAPABILITY } from './launch-secret.js'
 
 export type NamedIdentity = { identityId: string; agentDirectory: string }
@@ -306,25 +307,27 @@ export async function runNamedTui(
     await probe.whenTerminated()
   }
   const env: NodeJS.ProcessEnv = { PI_MCP_TOOL_EXPOSURE: 'proxy-only' }
-  if (value.launchSecretAccount) applyLaunchSecret(env, value.launchSecretAccount, value.agentDirectory)
-  const child = spawnNamedPi(
-    getPiCommand(process.env.PI_ACP_PI_COMMAND),
-    args,
-    value.cwd,
-    { stdio: 'inherit', env },
-    identity
-  )
-  const forward = (signal: NodeJS.Signals) => {
-    child.kill(signal)
-  }
-  const term = () => forward('SIGTERM')
-  process.on('SIGTERM', term)
+  const broker = value.launchSecretAccount ? await createLaunchSecretBroker(value.launchSecretAccount) : undefined
+  let term: (() => void) | undefined
   try {
-    return await new Promise<number>((resolve, reject) => {
+    if (broker) prepareLaunchSecretEnvironment(env, value.agentDirectory, broker)
+    const child = spawnNamedPi(
+      getPiCommand(process.env.PI_ACP_PI_COMMAND),
+      args,
+      value.cwd,
+      { stdio: 'inherit', env },
+      identity
+    )
+    term = () => child.kill('SIGTERM')
+    process.on('SIGTERM', term)
+    const code = await new Promise<number>((resolve, reject) => {
       child.once('error', reject)
-      child.once('exit', code => resolve(code ?? 1))
+      child.once('exit', exitCode => resolve(exitCode ?? 1))
     })
+    if (broker && !broker.taken) throw new Error('独立令牌就绪检查未获肯定回应，bridge 未领取令牌')
+    return code
   } finally {
-    process.off('SIGTERM', term)
+    if (term) process.off('SIGTERM', term)
+    broker?.close()
   }
 }

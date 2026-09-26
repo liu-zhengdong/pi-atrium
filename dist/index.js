@@ -160,7 +160,7 @@ var init_command = __esm({
 });
 
 // src/runtime/launch-secret.ts
-import { lstatSync as lstatSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync2, realpathSync } from "fs";
+import { lstatSync as lstatSync3, readFileSync as readFileSync2, realpathSync } from "fs";
 import { isAbsolute as isAbsolute2, join as join4 } from "path";
 function readLaunchSecret(account, root = process.env[LAUNCH_SECRET_ROOT_ENV]) {
   if (!root || !isAbsolute2(root)) throw new Error("Identity launch secret root is missing");
@@ -182,24 +182,6 @@ function readLaunchSecret(account, root = process.env[LAUNCH_SECRET_ROOT_ENV]) {
   if (!value || /\s/.test(value)) throw new Error("Identity launch secret is empty or malformed");
   return value;
 }
-function applyLaunchSecret(env, account, agentDirectory) {
-  const token = readLaunchSecret(account);
-  const configDir = join4(agentDirectory, "claude-code");
-  mkdirSync2(configDir, { recursive: true, mode: 448 });
-  const stat2 = lstatSync3(configDir);
-  if (!stat2.isDirectory() || stat2.isSymbolicLink() || stat2.uid !== process.getuid?.() || (stat2.mode & 511) !== 448)
-    throw new Error("Identity Claude config directory must be private");
-  for (const key of [
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX"
-  ])
-    delete env[key];
-  env.CLAUDE_CONFIG_DIR = configDir;
-  env.CLAUDE_CODE_OAUTH_TOKEN = token;
-}
 var IDENTITY_LAUNCH_SECRET_CAPABILITY, LAUNCH_SECRET_ROOT_ENV, LAUNCH_SECRET_NAME;
 var init_launch_secret = __esm({
   "src/runtime/launch-secret.ts"() {
@@ -207,6 +189,111 @@ var init_launch_secret = __esm({
     IDENTITY_LAUNCH_SECRET_CAPABILITY = "pi-acp/identity/launch-secret-file/v1";
     LAUNCH_SECRET_ROOT_ENV = "PI_ACP_LAUNCH_SECRET_ROOT";
     LAUNCH_SECRET_NAME = "claude-setup-token";
+  }
+});
+
+// src/runtime/launch-secret-broker.ts
+import { randomBytes } from "crypto";
+import { chmodSync as chmodSync2, lstatSync as lstatSync4, mkdirSync as mkdirSync2, mkdtempSync, rmSync } from "fs";
+import { createServer } from "net";
+import { tmpdir } from "os";
+import { join as join5 } from "path";
+async function createLaunchSecretBroker(account, deadlineMs = DEADLINE_MS) {
+  if (!/^k[0-9]+$/.test(account)) throw new Error("Invalid launch secret account number");
+  void readLaunchSecret(account);
+  const dir = mkdtempSync(join5(tmpdir(), "pi-atrium-secret-"));
+  chmodSync2(dir, 448);
+  const path = join5(dir, "s");
+  const challenge = randomBytes(32).toString("hex");
+  let taken = false;
+  let closed = false;
+  let timer;
+  const server = createServer((socket) => {
+    socket.setTimeout(3e3, () => socket.destroy());
+    let request = "";
+    socket.on("data", (data) => {
+      request += data.toString("utf8");
+      if (request.length > 256) {
+        socket.destroy();
+        return;
+      }
+      const end = request.indexOf("\n");
+      if (end < 0) return;
+      if (closed || taken || request.slice(0, end) !== `${LAUNCH_SECRET_GREETING} ${challenge}` || request.length !== end + 1) {
+        socket.destroy();
+        return;
+      }
+      taken = true;
+      try {
+        socket.end(`${readLaunchSecret(account)}
+`);
+      } catch {
+        socket.destroy();
+      }
+      close();
+    });
+  });
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (timer) clearTimeout(timer);
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  };
+  try {
+    await new Promise((resolve5, reject) => {
+      server.once("error", reject);
+      server.listen(path, () => {
+        server.off("error", reject);
+        resolve5();
+      });
+    });
+    chmodSync2(path, 384);
+    const stat2 = lstatSync4(path);
+    if (!stat2.isSocket() || stat2.isSymbolicLink()) throw new Error("Launch secret broker is not a socket");
+    timer = setTimeout(close, deadlineMs);
+    timer.unref();
+    return {
+      path,
+      challenge,
+      get taken() {
+        return taken;
+      },
+      close
+    };
+  } catch (error) {
+    close();
+    throw error;
+  }
+}
+function prepareLaunchSecretEnvironment(env, agentDirectory, socket) {
+  const configDir = join5(agentDirectory, "claude-code");
+  mkdirSync2(configDir, { recursive: true, mode: 448 });
+  const stat2 = lstatSync4(configDir);
+  if (!stat2.isDirectory() || stat2.isSymbolicLink() || stat2.uid !== process.getuid?.() || (stat2.mode & 511) !== 448)
+    throw new Error("Identity Claude config directory must be private");
+  for (const key of [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_OAUTH_TOKEN"
+  ])
+    delete env[key];
+  env.CLAUDE_CONFIG_DIR = configDir;
+  env[LAUNCH_SECRET_SOCKET_ENV] = socket.path;
+  env[LAUNCH_SECRET_CHALLENGE_ENV] = socket.challenge;
+}
+var LAUNCH_SECRET_SOCKET_ENV, LAUNCH_SECRET_CHALLENGE_ENV, LAUNCH_SECRET_GREETING, DEADLINE_MS;
+var init_launch_secret_broker = __esm({
+  "src/runtime/launch-secret-broker.ts"() {
+    "use strict";
+    init_launch_secret();
+    LAUNCH_SECRET_SOCKET_ENV = "PI_ATRIUM_LAUNCH_SECRET_SOCKET";
+    LAUNCH_SECRET_CHALLENGE_ENV = "PI_ATRIUM_LAUNCH_SECRET_CHALLENGE";
+    LAUNCH_SECRET_GREETING = "READY claude-bridge-token-ready-v1";
+    DEADLINE_MS = 3e4;
   }
 });
 
@@ -227,7 +314,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "fs";
-import { isAbsolute as isAbsolute3, join as join5 } from "path";
+import { isAbsolute as isAbsolute3, join as join6 } from "path";
 function parseIdentity(value) {
   if (!value || typeof value !== "object") throw new Error("Invalid named identity");
   const { identityId, agentDirectory } = value;
@@ -238,9 +325,9 @@ function parseIdentity(value) {
   return { identityId, agentDirectory: realpathSync2(agentDirectory) };
 }
 function files(identity) {
-  const root = join5(getPiAcpDir(), "identities");
+  const root = join6(getPiAcpDir(), "identities");
   mkdirSync3(root, { recursive: true, mode: 448 });
-  const base = join5(root, identity.identityId);
+  const base = join6(root, identity.identityId);
   return { owner: `${base}.json`, guard: `${base}.guard`, cursor: `${base}.cursor.json` };
 }
 function writeAtomic(path, value) {
@@ -380,7 +467,7 @@ function spawnNamedPi(command, args, cwd, options, identity) {
   delete env[LAUNCH_SECRET_ROOT_ENV];
   if (identity) {
     env.PI_CODING_AGENT_DIR = identity.agentDirectory;
-    env.PI_CODING_AGENT_SESSION_DIR = join5(identity.agentDirectory, "sessions");
+    env.PI_CODING_AGENT_SESSION_DIR = join6(identity.agentDirectory, "sessions");
     Object.assign(env, lease.env);
   }
   let child;
@@ -427,6 +514,7 @@ var init_identity = __esm({
     init_paths();
     init_command();
     init_launch_secret();
+    init_launch_secret_broker();
     init_launch_secret();
     IDENTITY_CAPABILITY = "pi-acp/identity/v1";
     IDENTITY_MODEL_CAPABILITY = "pi-acp/identity/model/v1";
@@ -799,7 +887,7 @@ var init_protocol = __esm({
 // src/pi-rpc/process.ts
 import { randomUUID as randomUUID3 } from "crypto";
 import { existsSync as existsSync2, mkdirSync as mkdirSync4, writeFileSync as writeFileSync2, statSync as statSync4, unlinkSync as unlinkSync2 } from "fs";
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 import { fileURLToPath } from "url";
 function piExecutableNotFoundError(cmd, cause) {
   return new PiRpcSpawnError(
@@ -812,7 +900,7 @@ var init_process = __esm({
   "src/pi-rpc/process.ts"() {
     "use strict";
     init_identity();
-    init_launch_secret();
+    init_launch_secret_broker();
     init_mcp_servers();
     init_command();
     init_line_decoder();
@@ -1031,7 +1119,7 @@ var init_process = __esm({
         let emptySessionPath;
         if (!params.sessionPath && params.sessionDirectory) {
           mkdirSync4(params.sessionDirectory, { recursive: true, mode: 448 });
-          emptySessionPath = join6(
+          emptySessionPath = join7(
             params.sessionDirectory,
             `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}_${crypto.randomUUID()}.jsonl`
           );
@@ -1051,11 +1139,12 @@ var init_process = __esm({
         if (params.agentDirectory) env.PI_CODING_AGENT_DIR = params.agentDirectory;
         if (params.mcpProxyOnly) env.PI_MCP_TOOL_EXPOSURE = "proxy-only";
         let child;
+        let broker;
         try {
-          if (params.launchSecretAccount !== void 0) {
-            if (!params.identity) throw new Error("Launch secret requires a named identity");
-            applyLaunchSecret(env, params.launchSecretAccount, params.identity.agentDirectory);
-          }
+          if (params.launchSecretAccount !== void 0 && !params.identity)
+            throw new Error("Launch secret requires a named identity");
+          broker = params.launchSecretAccount !== void 0 ? await createLaunchSecretBroker(params.launchSecretAccount) : void 0;
+          if (broker && params.identity) prepareLaunchSecretEnvironment(env, params.identity.agentDirectory, broker);
           child = spawnNamedPi(
             cmd,
             args,
@@ -1064,14 +1153,19 @@ var init_process = __esm({
             params.identity
           );
         } catch (error) {
+          broker?.close();
           cleanupEmptySession();
           throw error;
         }
         const proc = new _PiRpcProcess(child);
-        void proc.whenTerminated().then(cleanupEmptySession);
+        void proc.whenTerminated().then(() => {
+          broker?.close();
+          cleanupEmptySession();
+        });
         try {
           params.onProcess?.(proc);
         } catch (error) {
+          broker?.close();
           proc.dispose();
           throw error;
         }
@@ -1093,6 +1187,7 @@ var init_process = __esm({
             child.once("error", onError);
           });
         } catch (error) {
+          broker?.close();
           proc.dispose({ expected: false });
           const e = error;
           const code = typeof e.code === "string" ? e.code : void 0;
@@ -1110,6 +1205,7 @@ var init_process = __esm({
             if (!Array.isArray(commands.commands) || !commands.commands.some((command) => command.name === "claude-bridge-token-ready-v1"))
               throw new Error("Claude bridge did not advertise token readiness");
           } catch (error) {
+            broker?.close();
             proc.dispose({ expected: false });
             await proc.whenTerminated();
             cleanupEmptySession();
@@ -1117,6 +1213,12 @@ var init_process = __esm({
               "\u72EC\u7ACB\u4EE4\u724C\u5C31\u7EEA\u68C0\u67E5\u672A\u83B7\u80AF\u5B9A\u56DE\u5E94\uFF0C\u5DF2\u62D2\u7EDD\u542F\u52A8\u3002\u5347\u7EA7\u6B64\u8EAB\u4EFD\u7684 claude-bridge\uFF1Api install git:github.com/liu-zhengdong/pi-claude-bridge@<\u65B0\u7248\u63D0\u4EA4>\uFF1B\u7136\u540E\u91CD\u542F\u8EAB\u4EFD",
               { cause: error }
             );
+          }
+          if (!broker?.taken) {
+            broker?.close();
+            proc.dispose({ expected: false });
+            await proc.whenTerminated();
+            throw new Error("\u72EC\u7ACB\u4EE4\u724C\u5C31\u7EEA\u68C0\u67E5\u672A\u83B7\u80AF\u5B9A\u56DE\u5E94\uFF0Cbridge \u672A\u9886\u53D6\u4EE4\u724C\uFF1B\u8BF7\u66F4\u65B0 claude-bridge \u5E76\u91CD\u542F\u8EAB\u4EFD");
           }
         }
         return proc;
@@ -2702,7 +2804,7 @@ init_paths();
 import { closeSync as closeSync2, fsyncSync, mkdirSync as mkdirSync5, openSync as openSync2, readFileSync as readFileSync4, renameSync as renameSync2, unlinkSync as unlinkSync3, writeSync } from "fs";
 import { createHash } from "crypto";
 import { readFile, readdir } from "fs/promises";
-import { dirname, join as join7 } from "path";
+import { dirname, join as join8 } from "path";
 var SessionStoreCorruptError = class extends Error {
   path;
   constructor(path, detail) {
@@ -2836,7 +2938,7 @@ var SessionStore = class {
   recordPath(sessionId) {
     const encoded = Buffer.from(sessionId, "utf-8").toString("base64url");
     const name = encoded.length <= 180 ? encoded : `sha256-${createHash("sha256").update(sessionId).digest("hex")}`;
-    return join7(this.stateDir, `${name}.json`);
+    return join8(this.stateDir, `${name}.json`);
   }
   readLegacy(sessionId) {
     const raw = readFileOrNull(this.legacyMapPath);
@@ -2884,7 +2986,7 @@ var SessionStore = class {
       if (error.code !== "ENOENT") throw error;
     }
     for (const name of names) {
-      const path = join7(this.stateDir, name);
+      const path = join8(this.stateDir, name);
       const record2 = parseRecord(path, await readFile(path, "utf8"));
       const id = record2.deleted ? record2.sessionId : record2.session.sessionId;
       if (path !== this.recordPath(id)) {
@@ -2918,13 +3020,13 @@ var SessionStore = class {
 // src/acp/session-repository.ts
 import { createReadStream } from "fs";
 import { open as open2, readdir as readdir2, realpath, stat, unlink } from "fs/promises";
-import { dirname as dirname2, join as join9, isAbsolute as isAbsolute4, relative, resolve as resolve3 } from "path";
+import { dirname as dirname2, join as join10, isAbsolute as isAbsolute4, relative, resolve as resolve3 } from "path";
 import { homedir as homedir3 } from "os";
 
 // src/acp/pi-settings.ts
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "fs";
 import { homedir as homedir2 } from "os";
-import { join as join8, resolve as resolve2 } from "path";
+import { join as join9, resolve as resolve2 } from "path";
 function isObject(x) {
   return Boolean(x) && typeof x === "object" && !Array.isArray(x);
 }
@@ -2948,14 +3050,14 @@ function readJsonFile(path) {
   }
 }
 function getMergedPiSettings(cwd) {
-  const globalSettingsPath = join8(getAgentDir(), "settings.json");
+  const globalSettingsPath = join9(getAgentDir(), "settings.json");
   const projectSettingsPath = resolve2(cwd, ".pi", "settings.json");
   const global = readJsonFile(globalSettingsPath);
   const project2 = readJsonFile(projectSettingsPath);
   return deepMerge(global, project2);
 }
 function getAgentDir() {
-  return process.env.PI_CODING_AGENT_DIR ? resolve2(process.env.PI_CODING_AGENT_DIR) : join8(homedir2(), ".pi", "agent");
+  return process.env.PI_CODING_AGENT_DIR ? resolve2(process.env.PI_CODING_AGENT_DIR) : join9(homedir2(), ".pi", "agent");
 }
 
 // src/acp/session-cwd.ts
@@ -3026,12 +3128,12 @@ function rethrowResourceExhaustion(error) {
   if (RESOURCE_EXHAUSTION_CODES.has(error.code ?? "")) throw error;
 }
 function expandDirectory(value, cwd) {
-  const expanded = value === "~" ? homedir3() : value.startsWith("~/") || value.startsWith("~\\") ? join9(homedir3(), value.slice(2)) : value;
+  const expanded = value === "~" ? homedir3() : value.startsWith("~/") || value.startsWith("~\\") ? join10(homedir3(), value.slice(2)) : value;
   return isAbsolute4(expanded) ? expanded : resolve3(cwd, expanded);
 }
 function defaultSessionDirectory(cwd, agentDir = getAgentDir()) {
   const encoded = resolve3(cwd).replace(/^[/\\]+/, "").replace(/[/\\:]/g, "-");
-  return join9(agentDir, "sessions", `--${encoded}--`);
+  return join10(agentDir, "sessions", `--${encoded}--`);
 }
 function resolveSessionDirectory(cwd, env = process.env, agentDir = getAgentDir()) {
   const fromEnv = env.PI_CODING_AGENT_SESSION_DIR?.trim();
@@ -3179,7 +3281,7 @@ async function project(path, requestedId, knownHeader) {
 }
 function sessionDiscoveryRoot(cwd, env, agentDir) {
   const resolved = resolveSessionDirectory(cwd, env, agentDir);
-  return resolved.custom ? resolved.path : join9(agentDir, "sessions");
+  return resolved.custom ? resolved.path : join10(agentDir, "sessions");
 }
 function addStoredDiscoveryRoot(roots, stored, env, agentDir) {
   const configuredRoot = sessionDiscoveryRoot(stored.cwd, env, agentDir);
@@ -3199,7 +3301,7 @@ async function jsonlFiles(root) {
       continue;
     }
     for (const entry of entries) {
-      const path = join9(dir, entry.name);
+      const path = join10(dir, entry.name);
       if (entry.isDirectory()) pending.push(path);
       else if (entry.isFile() && entry.name.endsWith(".jsonl")) files2.push(path);
     }
@@ -5930,7 +6032,7 @@ function toAvailableCommandsFromPiGetCommands(data, _legacyOptions) {
 }
 
 // src/acp/agent.ts
-import { dirname as dirname4, isAbsolute as isAbsolute6, join as join10, resolve as resolve4 } from "path";
+import { dirname as dirname4, isAbsolute as isAbsolute6, join as join11, resolve as resolve4 } from "path";
 import { existsSync as existsSync4, readFileSync as readFileSync6, realpathSync as realpathSync4 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function sessionMcpServers(value) {
@@ -6780,7 +6882,7 @@ function readNearestPackageJson(metaUrl) {
   try {
     let dir = dirname4(fileURLToPath2(metaUrl));
     for (let i = 0; i < 6; i++) {
-      const p = join10(dir, "package.json");
+      const p = join11(dir, "package.json");
       if (existsSync4(p)) {
         const json = JSON.parse(readFileSync6(p, "utf-8"));
         return {
@@ -6815,7 +6917,7 @@ var ClientConnection = class {
 
 // src/runtime/gateway.ts
 init_process();
-import { join as join11 } from "path";
+import { join as join12 } from "path";
 init_identity();
 function appliedModel(state) {
   const value = state;
@@ -6902,7 +7004,7 @@ var RuntimeGateway = class {
       identity,
       agentDirectory: identity.agentDirectory,
       ...params.launchSecretAccount === void 0 ? {} : { launchSecretAccount: string(params.launchSecretAccount, 32) },
-      sessionDirectory: join11(identity.agentDirectory, "sessions"),
+      sessionDirectory: join12(identity.agentDirectory, "sessions"),
       sessionPath,
       ...params.model === void 0 ? {} : { model: string(params.model, 200) },
       mcpProxyOnly: true,

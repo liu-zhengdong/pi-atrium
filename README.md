@@ -176,12 +176,14 @@ PI_ACP_MCP_EXTENSION=/absolute/path/to/pi-mcp-adapter/index.ts npm run smoke:run
 
 客户端可将长期身份与 Pi 会话、进程分开。ACP `initialize` 的 `_meta["pi-acp/identity/v1"]` 声明以下能力：
 
-| 方法                 | 参数与作用                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `_pi/identity/start` | `{identityId,agentDirectory,cwd,sessionFile?}`：以独立配置创建／恢复后台 RPC，返回 `{runtimeId}`，再经 `runtime/v1` 接入 |
-| `_pi/identity/stop`  | `{identityId}`：停止当前 ACP 连接启动的该身份 RPC；不终止外部 TUI                                                        |
+| 方法                 | 参数与作用                                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_pi/identity/start` | `{identityId,agentDirectory,cwd,sessionFile?,launchSecretAccount?}`：以独立配置创建／恢复后台 RPC，返回 `{runtimeId}`，再经 `runtime/v1` 接入 |
+| `_pi/identity/stop`  | `{identityId}`：停止当前 ACP 连接启动的该身份 RPC；不终止外部 TUI                                                                             |
 
 `identityId` 为客户端持久分配的 UUID；`agentDirectory` 与 `cwd` 为已存在的绝对目录。配置目录需要预先启用本包通用扩展；有外部 MCP 时还需配套固定代理 adapter。启动时强制使用身份自己的配置与会话目录，最后会话位置保存在 pi-acp 状态目录中。实例状态额外返回 `identityId`；普通 Pi 为 `null`，不会因发现或连接自动获得长期身份。
+
+独立 Claude 令牌启动须检查 `initialize._meta["pi-acp/identity/launch-secret-file/v1"] === true`，只传 `^k[0-9]+$` 的 `launchSecretAccount` 短号。受信任的 ACP 启动环境提供账号根 `PI_ACP_LAUNCH_SECRET_ROOT`；不能把账号根放入身份 RPC 参数。pi-atrium 读取权限受限的令牌文件，在 Pi 内的 claude-bridge 声明 `claude-bridge-token-ready-v1` 能力后，经一次性本机套接字把令牌交给扩展；Pi 的环境、ACP 消息及进程命令行不带令牌。未声明或未领取、超时、旧 bridge 一律拒绝启动，不退回共用登录。所有具名 Pi 的环境都会清除从父进程继承的供应商认证变量及 `GH_TOKEN`、`GITHUB_TOKEN`、`NPM_TOKEN` 等通用密钥；只有身份自己的 `auth.json` 与客户端显式分配的启动凭据可用。通用扩展在同一身份进程内运行，不提供抵御该身份内恶意扩展的沙箱隔离。
 
 原生 TUI 入口由同一包的 `@liuser/pi-acp/dist/identity.js` 导出 `runNamedTui({identityId,agentDirectory,cwd,sessionFile?})`，由客户端解析业务身份后调用，不接受任意 Pi 参数。TUI 和 RPC 共用占用机制：从启动前到实际进程退出全程持有；断开 ACP、网络超时、忙碌或切换会话都不释放身份。重启默认恢复该身份的最后会话；若该文件非空但缺少 Pi 会话头、Pi 无法加载，则忽略该文件并开新会话，不删除原文件。历史会话初次迁移可提供 `sessionFile`。
 

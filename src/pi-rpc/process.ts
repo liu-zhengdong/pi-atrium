@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { spawnNamedPi, type NamedIdentity } from '../runtime/identity.js'
-import { applyLaunchSecret } from '../runtime/launch-secret.js'
+import { createLaunchSecretBroker, prepareLaunchSecretEnvironment } from '../runtime/launch-secret-broker.js'
 import { randomUUID } from 'node:crypto'
 import { MCP_COMMAND, MCP_WIDGET, McpConfigurationError, type McpServer } from './mcp-servers.js'
 import { existsSync, mkdirSync, writeFileSync, statSync, unlinkSync } from 'node:fs'
@@ -393,11 +393,15 @@ export class PiRpcProcess {
     if (params.agentDirectory) env.PI_CODING_AGENT_DIR = params.agentDirectory
     if (params.mcpProxyOnly) env.PI_MCP_TOOL_EXPOSURE = 'proxy-only'
     let child: ChildProcessWithoutNullStreams
+    let broker: Awaited<ReturnType<typeof createLaunchSecretBroker>> | undefined
     try {
-      if (params.launchSecretAccount !== undefined) {
-        if (!params.identity) throw new Error('Launch secret requires a named identity')
-        applyLaunchSecret(env, params.launchSecretAccount, params.identity.agentDirectory)
-      }
+      if (params.launchSecretAccount !== undefined && !params.identity)
+        throw new Error('Launch secret requires a named identity')
+      broker =
+        params.launchSecretAccount !== undefined
+          ? await createLaunchSecretBroker(params.launchSecretAccount)
+          : undefined
+      if (broker && params.identity) prepareLaunchSecretEnvironment(env, params.identity.agentDirectory, broker)
       child = spawnNamedPi(
         cmd,
         args,
@@ -406,6 +410,7 @@ export class PiRpcProcess {
         params.identity
       ) as ChildProcessWithoutNullStreams
     } catch (error) {
+      broker?.close()
       cleanupEmptySession()
       throw error
     }
@@ -413,13 +418,17 @@ export class PiRpcProcess {
     // directly after its `spawn` event; constructing only after awaiting that
     // event creates a window where the terminal event is lost.
     const proc = new PiRpcProcess(child)
-    void proc.whenTerminated().then(cleanupEmptySession)
+    void proc.whenTerminated().then(() => {
+      broker?.close()
+      cleanupEmptySession()
+    })
 
     // The OS child is alive now. Hand it to its owner before the first await
     // so a shutdown starting inside this window still terminates it.
     try {
       params.onProcess?.(proc)
     } catch (error) {
+      broker?.close()
       proc.dispose()
       throw error
     }
@@ -445,6 +454,7 @@ export class PiRpcProcess {
         child.once('error', onError)
       })
     } catch (error) {
+      broker?.close()
       proc.dispose({ expected: false })
       const e = error as NodeJS.ErrnoException
       const code = typeof e.code === 'string' ? e.code : undefined
@@ -471,6 +481,7 @@ export class PiRpcProcess {
         )
           throw new Error('Claude bridge did not advertise token readiness')
       } catch (error) {
+        broker?.close()
         proc.dispose({ expected: false })
         await proc.whenTerminated()
         cleanupEmptySession()
@@ -478,6 +489,14 @@ export class PiRpcProcess {
           '独立令牌就绪检查未获肯定回应，已拒绝启动。升级此身份的 claude-bridge：pi install git:github.com/liu-zhengdong/pi-claude-bridge@<新版提交>；然后重启身份',
           { cause: error }
         )
+      }
+      // A command marker without token delivery is not readiness. The broker
+      // must be closed before any user turn, never fall back to local login.
+      if (!broker?.taken) {
+        broker?.close()
+        proc.dispose({ expected: false })
+        await proc.whenTerminated()
+        throw new Error('独立令牌就绪检查未获肯定回应，bridge 未领取令牌；请更新 claude-bridge 并重启身份')
       }
     }
     // Non-token launches return as soon as the OS process exists; the caller

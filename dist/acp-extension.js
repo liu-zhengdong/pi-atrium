@@ -121,11 +121,24 @@ var init_command = __esm({
 });
 
 // src/runtime/launch-secret.ts
-import { lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, realpathSync } from "fs";
+import { lstatSync as lstatSync2, readFileSync as readFileSync2, realpathSync } from "fs";
 import { isAbsolute, join as join3 } from "path";
 var init_launch_secret = __esm({
   "src/runtime/launch-secret.ts"() {
     "use strict";
+  }
+});
+
+// src/runtime/launch-secret-broker.ts
+import { randomBytes } from "crypto";
+import { chmodSync as chmodSync2, lstatSync as lstatSync3, mkdirSync as mkdirSync2, mkdtempSync, rmSync } from "fs";
+import { createServer } from "net";
+import { tmpdir } from "os";
+import { join as join4 } from "path";
+var init_launch_secret_broker = __esm({
+  "src/runtime/launch-secret-broker.ts"() {
+    "use strict";
+    init_launch_secret();
   }
 });
 
@@ -146,7 +159,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "fs";
-import { isAbsolute as isAbsolute2, join as join4 } from "path";
+import { isAbsolute as isAbsolute2, join as join5 } from "path";
 function parseIdentity(value) {
   if (!value || typeof value !== "object") throw new Error("Invalid named identity");
   const { identityId, agentDirectory } = value;
@@ -157,9 +170,9 @@ function parseIdentity(value) {
   return { identityId, agentDirectory: realpathSync2(agentDirectory) };
 }
 function files(identity) {
-  const root = join4(getPiAcpDir(), "identities");
+  const root = join5(getPiAcpDir(), "identities");
   mkdirSync3(root, { recursive: true, mode: 448 });
-  const base = join4(root, identity.identityId);
+  const base = join5(root, identity.identityId);
   return { owner: `${base}.json`, guard: `${base}.guard`, cursor: `${base}.cursor.json` };
 }
 function writeAtomic(path, value) {
@@ -191,6 +204,7 @@ var init_identity = __esm({
     init_paths();
     init_command();
     init_launch_secret();
+    init_launch_secret_broker();
     init_launch_secret();
     bindingKey = /* @__PURE__ */ Symbol.for("@liuser/pi-acp/named-identity/v1");
     ENV = "PI_ACP_NAMED_OWNER";
@@ -395,9 +409,9 @@ function registerMcpBridge(pi) {
 }
 
 // src/runtime/extension.ts
-import { createHash, randomBytes, randomUUID as randomUUID3, timingSafeEqual } from "crypto";
-import { chmodSync as chmodSync2, renameSync as renameSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
-import { createServer } from "net";
+import { createHash, randomBytes as randomBytes2, randomUUID as randomUUID3, timingSafeEqual } from "crypto";
+import { chmodSync as chmodSync3, renameSync as renameSync2, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
+import { createServer as createServer2 } from "net";
 import { agent, PROTOCOL_VERSION as PROTOCOL_VERSION2 } from "@agentclientprotocol/sdk";
 
 // src/runtime/transport.ts
@@ -635,9 +649,9 @@ function registerRuntimeBridge(pi, mcp) {
       cwd: ctx.cwd,
       mode,
       endpoint,
-      token: randomBytes(32).toString("hex")
+      token: randomBytes2(32).toString("hex")
     };
-    server = createServer((socket) => {
+    server = createServer2((socket) => {
       if (sockets.size >= 64) {
         socket.destroy();
         return;
@@ -747,7 +761,7 @@ ${text}`;
       });
     });
     server.on("error", () => void stop());
-    if (process.platform !== "win32") chmodSync2(endpoint, 384);
+    if (process.platform !== "win32") chmodSync3(endpoint, 384);
     const path = recordPath(runtimeId), temp = `${path}.${randomUUID3()}.tmp`;
     writeFileSync2(temp, JSON.stringify(record2), { mode: 384 });
     renameSync2(temp, path);
