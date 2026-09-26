@@ -22,6 +22,9 @@ import {
   validateDirectory,
 } from "../src/config.ts";
 import {
+  DEFAULT_MAX_NOTE_BYTES,
+} from "../src/config.ts";
+import {
   discoverNoteDirectories,
   headerBounds,
   MAX_HEADER_BYTES,
@@ -29,6 +32,7 @@ import {
   parseMetadata,
   previewSnapshot,
   resolveSources,
+  oversizeReminder,
   UNTRUSTED_REASON,
 } from "../src/notes.ts";
 
@@ -454,6 +458,8 @@ test("configuration: validation, quoted/spaced paths, atomic writes and invalid-
     '{"maxContextBytes":"1000"}',
     '{"maxContextBytes":-1}',
     '{"maxContextBytes":999999999}',
+    '{"maxNoteBytes":"8192"}',
+    '{"maxNoteBytes":512}',
     '{"typo":true}',
   ]) {
     await writeFile(path, invalid);
@@ -461,4 +467,41 @@ test("configuration: validation, quoted/spaced paths, atomic writes and invalid-
     await assert.rejects(saveDirectory(path, vault));
     assert.equal(await readFile(path, "utf8"), invalid);
   }
+});
+
+test("oversized defaultopen notes stay whole and carry a split reminder until fixed", async (t) => {
+  const { directory, config, loader } = await fixture(t);
+  const open = "---\ndefaultopen: true\n---\n";
+  const exact = "a".repeat(DEFAULT_MAX_NOTE_BYTES);
+  const big = "中".repeat(4000); // 12000 UTF-8 bytes
+  await writeFile(join(directory, "exact.md"), open + exact);
+  await writeFile(join(directory, "big.md"), open + big);
+  await writeFile(
+    join(directory, "summary.md"),
+    "---\ndefaultopen: false\n---\n" + big,
+  );
+  const reminder = oversizeReminder([12000, DEFAULT_MAX_NOTE_BYTES]);
+  assert.match(reminder, /11\.7 KiB.*8 KiB.*渐进式披露/);
+
+  let snapshot = await loader.scan(config);
+  const note = (name: string) =>
+    snapshot.sources[0].notes.find((item) => item.name === name)!;
+  assert.equal(note("exact.md").oversize, undefined);
+  assert.deepEqual(note("big.md").oversize, [12000, DEFAULT_MAX_NOTE_BYTES]);
+  assert.equal(note("summary.md").oversize, undefined);
+  assert.equal(snapshot.text.split(reminder).length, 2); // only big.md
+  assert.ok(snapshot.text.includes(big)); // full body is still injected
+  assert.ok(snapshot.text.indexOf(reminder) < snapshot.text.indexOf(big));
+  assert.equal(snapshot.issues.length, 0); // model-facing only, no TUI warning
+
+  // A configured limit applies immediately, even to cached notes.
+  snapshot = await loader.scan({ ...config, maxNoteBytes: 16 * 1024 });
+  assert.ok(!snapshot.text.includes("渐进式披露"));
+  snapshot = await loader.scan({ ...config, maxNoteBytes: 1024 });
+  assert.ok(note("exact.md").oversize);
+
+  // Splitting the note clears the reminder on the next scan.
+  await writeFile(join(directory, "big.md"), open + "要点与索引");
+  snapshot = await loader.scan(config);
+  assert.ok(!snapshot.text.includes("渐进式披露"));
 });

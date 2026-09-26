@@ -2,7 +2,11 @@ import { constants, type BigIntStats, type Dirent } from "node:fs";
 import { lstat, open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseDocument } from "yaml";
-import { errorMessage, type NotesConfig } from "./config.ts";
+import {
+  DEFAULT_MAX_NOTE_BYTES,
+  errorMessage,
+  type NotesConfig,
+} from "./config.ts";
 
 export const MAX_HEADER_BYTES = 64 * 1024;
 export interface Metadata {
@@ -15,6 +19,8 @@ export interface Note {
   path: string;
   description?: string;
   body?: string;
+  /** Set when an expanded body exceeds maxNoteBytes: [body bytes, limit]. */
+  oversize?: [number, number];
   error?: string;
 }
 export interface Folder {
@@ -127,6 +133,13 @@ export const signature = (stat: BigIntStats): string =>
 const bytes = (text: string): number => Buffer.byteLength(text, "utf8");
 const field = (label: string, value: string, indent = ""): string =>
   `${indent}${label}：${value.replace(/\r?\n/g, `\n${indent}  `)}`;
+const kib = (value: number): string =>
+  `${Math.round((value / 1024) * 10) / 10} KiB`;
+
+/** Addressed to the model: the note stays whole; the fix is to split it. */
+export function oversizeReminder([size, limit]: [number, number]): string {
+  return `这篇笔记正文 ${kib(size)}，超过单篇 ${kib(limit)} 的建议上限，每轮都在占用上下文。请按渐进式披露拆分：本文件只留要点和指向分册的索引；细节原文移到子目录下的分册（defaultopen: false，写 description 和 keywords，对话命中关键词时会提示摘要）。拆分时不要删原文，拆完本提醒自动消失。`;
+}
 
 export function renderNote(note: Note): string {
   const full = note.body !== undefined;
@@ -134,6 +147,8 @@ export function renderNote(note: Note): string {
   const indent = full ? "" : "  ";
   lines.push(field("路径", note.path, indent));
   if (note.description) lines.push(field("描述", note.description, indent));
+  if (full && note.oversize)
+    lines.push(field("提醒", oversizeReminder(note.oversize), indent));
   if (full) lines.push("", note.body!);
   if (note.error) lines.push(field("未展开", note.error, indent));
   return lines.join("\n");
@@ -315,6 +330,7 @@ export class NotesLoader {
   >();
   private cacheBytes = 0;
   private limit?: number;
+  private noteLimit?: number;
 
   clear(): void {
     this.cache.clear();
@@ -340,6 +356,7 @@ export class NotesLoader {
     directory: string,
     seen: Set<string>,
     limit: number,
+    noteLimit: number,
   ): Promise<Collected> {
     const entries = (await readdir(directory, { withFileTypes: true })).sort(
       (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
@@ -389,8 +406,11 @@ export class NotesLoader {
             ...note,
             description: metadata.description,
           };
-          if (metadata.defaultopen)
+          if (metadata.defaultopen) {
             note.body = await readBody(file, before, limit);
+            const size = bytes(note.body);
+            if (size > noteLimit) note.oversize = [size, noteLimit];
+          }
           if (
             signature(before) !== signature(await file.stat({ bigint: true }))
           )
@@ -423,10 +443,13 @@ export class NotesLoader {
     sources: SourceRequest[] = [],
   ): Promise<Snapshot> {
     const { directory, maxContextBytes } = config;
+    const maxNoteBytes = config.maxNoteBytes ?? DEFAULT_MAX_NOTE_BYTES;
     if (!sources.length)
       sources = directory ? [{ kind: "global", path: directory }] : [];
-    if (maxContextBytes !== this.limit) this.clear();
+    if (maxContextBytes !== this.limit || maxNoteBytes !== this.noteLimit)
+      this.clear();
     this.limit = maxContextBytes;
+    this.noteLimit = maxNoteBytes;
     const snapshot: Snapshot = {
       directory,
       sources: [],
@@ -458,7 +481,12 @@ export class NotesLoader {
       try {
         const root = await stat(source.path, { bigint: true });
         identity = `${root.dev}:${root.ino}`;
-        collected = await this.scanEntries(source.path, seen, maxContextBytes);
+        collected = await this.scanEntries(
+          source.path,
+          seen,
+          maxContextBytes,
+          maxNoteBytes,
+        );
       } catch (error) {
         const problem = errorMessage(error);
         snapshot.issues.push(`${source.path}：${problem}`);

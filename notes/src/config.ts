@@ -12,9 +12,12 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export const DEFAULT_MAX_CONTEXT_BYTES = 256 * 1024;
+/** Above this, a defaultopen note is still injected in full but carries a split reminder. */
+export const DEFAULT_MAX_NOTE_BYTES = 8 * 1024;
 export interface NotesConfig {
   directory: string | null;
   maxContextBytes: number;
+  maxNoteBytes?: number;
 }
 
 /** Unconfigured global notes live next to notes.json: `<agentDir>/notes`. */
@@ -73,6 +76,7 @@ export async function loadConfig(path: string): Promise<NotesConfig> {
       return {
         directory: await presentDefaultDirectory(path),
         maxContextBytes: DEFAULT_MAX_CONTEXT_BYTES,
+        maxNoteBytes: DEFAULT_MAX_NOTE_BYTES,
       };
     }
     throw error;
@@ -83,7 +87,11 @@ export async function loadConfig(path: string): Promise<NotesConfig> {
       throw new Error("配置必须是 JSON 对象");
     const record = data as Record<string, unknown>;
     for (const key of Object.keys(record)) {
-      if (key !== "directory" && key !== "maxContextBytes")
+      if (
+        key !== "directory" &&
+        key !== "maxContextBytes" &&
+        key !== "maxNoteBytes"
+      )
         throw new Error(`未知字段：${key}`);
     }
     let directory: string | null;
@@ -109,7 +117,16 @@ export async function loadConfig(path: string): Promise<NotesConfig> {
     ) {
       throw new Error("maxContextBytes 必须是 1024 到 16777216 之间的整数");
     }
-    return { directory, maxContextBytes };
+    const maxNoteBytes = record.maxNoteBytes ?? DEFAULT_MAX_NOTE_BYTES;
+    if (
+      typeof maxNoteBytes !== "number" ||
+      !Number.isSafeInteger(maxNoteBytes) ||
+      maxNoteBytes < 1024 ||
+      maxNoteBytes > 16 * 1024 * 1024
+    ) {
+      throw new Error("maxNoteBytes 必须是 1024 到 16777216 之间的整数");
+    }
+    return { directory, maxContextBytes, maxNoteBytes };
   } catch (error) {
     throw new Error(`${path}：${errorMessage(error)}`);
   }
