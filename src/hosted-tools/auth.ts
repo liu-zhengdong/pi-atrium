@@ -41,20 +41,24 @@ export async function sendWithToken(
   send: (token: string) => Promise<JsonResponse>
 ): Promise<unknown> {
   let token = await resolveToken(registry, provider)
+  const used = [token]
   let response = await send(token)
   if (!response.ok && (response.status === 401 || response.status === 403)) {
     const next = await resolveToken(registry, provider)
     if (next !== token) {
       token = next
+      used.push(token)
       response = await send(token)
     }
   }
   if (response.ok) return response.value
+  // 服务端可能不带 Bearer 前缀直接回显令牌；按原文抹掉用过的令牌。
+  const scrubbed = used.reduce((text, value) => text.split(value).join('[已隐藏]'), response.detail).slice(0, 300)
   if (response.status === 401 || response.status === 403) {
-    const detail = response.detail ? `：${response.detail}` : ''
+    const detail = scrubbed ? `：${scrubbed}` : ''
     throw new HostedToolError(
       `${label}鉴权失败（HTTP ${response.status}）${detail}。当前 ${provider} 登录可能已失效或无此权限，请${LOGIN_HINT[provider]}。`
     )
   }
-  throw httpFailure(label, response.status, response.detail)
+  throw httpFailure(label, response.status, scrubbed)
 }

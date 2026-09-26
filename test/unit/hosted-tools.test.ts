@@ -410,6 +410,16 @@ test('失败给出可读原因且不带令牌', async () => {
   // 同一令牌不重试。
   assert.equal(service.requests.length, 1)
 
+  // 不带 Bearer 前缀的原文回显也要抹掉。
+  service.on('POST /backend-api/codex/alpha/search', () => ({
+    status: 400,
+    json: { error: { message: `bad credential ${'x'.repeat(280)}${token}` } }
+  }))
+  const echoed = await run('codex_search', { query: 'q' }, codex).catch((error: Error) => error)
+  assert.ok(echoed instanceof Error)
+  assert.match(echoed.message, /Codex 搜索失败（HTTP 400）：bad credential x+/)
+  assert.doesNotMatch(echoed.message, /secret-nonce|eyJ/)
+
   service.on('POST /backend-api/codex/alpha/search', () => ({
     status: 429,
     json: { error: { message: 'usage limit' } }

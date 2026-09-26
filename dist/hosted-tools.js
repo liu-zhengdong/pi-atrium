@@ -91,7 +91,7 @@ function errorDetail(text) {
     }
   } catch {
   }
-  return redactBearer(message.replace(/\s+/g, " ").trim()).slice(0, 300);
+  return redactBearer(message.replace(/\s+/g, " ").trim()).slice(0, 64 * 1024);
 }
 function networkReason(error) {
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : void 0;
@@ -124,22 +124,25 @@ async function resolveToken(registry, provider) {
 }
 async function sendWithToken(registry, provider, label, send) {
   let token = await resolveToken(registry, provider);
+  const used = [token];
   let response = await send(token);
   if (!response.ok && (response.status === 401 || response.status === 403)) {
     const next = await resolveToken(registry, provider);
     if (next !== token) {
       token = next;
+      used.push(token);
       response = await send(token);
     }
   }
   if (response.ok) return response.value;
+  const scrubbed = used.reduce((text, value) => text.split(value).join("[\u5DF2\u9690\u85CF]"), response.detail).slice(0, 300);
   if (response.status === 401 || response.status === 403) {
-    const detail = response.detail ? `\uFF1A${response.detail}` : "";
+    const detail = scrubbed ? `\uFF1A${scrubbed}` : "";
     throw new HostedToolError(
       `${label}\u9274\u6743\u5931\u8D25\uFF08HTTP ${response.status}\uFF09${detail}\u3002\u5F53\u524D ${provider} \u767B\u5F55\u53EF\u80FD\u5DF2\u5931\u6548\u6216\u65E0\u6B64\u6743\u9650\uFF0C\u8BF7${LOGIN_HINT[provider]}\u3002`
     );
   }
-  throw httpFailure(label, response.status, response.detail);
+  throw httpFailure(label, response.status, scrubbed);
 }
 
 // src/hosted-tools/images.ts

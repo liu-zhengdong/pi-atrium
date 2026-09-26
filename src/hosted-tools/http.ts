@@ -97,7 +97,7 @@ async function readBounded(response: Response, maxBytes: number): Promise<string
   return Buffer.concat(chunks).toString('utf8')
 }
 
-/** 取服务端错误说明的前 300 字；OpenAI/xAI 都用 `{ error: { message } }` 或 `{ error: "..." }`。 */
+/** 取服务端错误说明（调用方截到 300 字）；OpenAI/xAI 都用 `{ error: { message } }` 或 `{ error: "..." }`。 */
 function errorDetail(text: string): string {
   let message = text
   try {
@@ -112,7 +112,8 @@ function errorDetail(text: string): string {
   } catch {
     // 非 JSON 错误页按原文截断。
   }
-  return redactBearer(message.replace(/\s+/g, ' ').trim()).slice(0, 300)
+  // 截断留给调用方：先按原文抹掉令牌再截，免得截断处留下半枚令牌。
+  return redactBearer(message.replace(/\s+/g, ' ').trim()).slice(0, 64 * 1024)
 }
 
 function networkReason(error: unknown): string {
