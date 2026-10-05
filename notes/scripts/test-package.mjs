@@ -16,7 +16,7 @@ const tarball = process.argv[2]
 const files = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" })
   .trim().split("\n").filter((file) => !file.endsWith("/"));
 for (const file of files) {
-  assert.match(file, /^package\/(?:dist\/[^/]+\.(?:js|d\.ts)|dist\/web\/app\.js|src\/.+\.ts|web\/(?:index\.html|style\.css)|examples\/vault\/.+\.md|docs\/.+\.md|(?:README(?:-Evolution)?|DESIGN(?:-Evolution)?)\.md|package\.json)$/,
+  assert.match(file, /^package\/(?:dist\/[^/]+\.(?:js|d\.ts)|dist\/web\/app\.js|src\/.+\.ts|web\/(?:index\.html|style\.css)|examples\/vault\/.+\.md|docs\/.+\.md|(?:README|DESIGN)\.md|package\.json)$/,
     `Unexpected package file: ${file}`);
 }
 for (const file of ["package.json", "dist/index.js", "dist/index.d.ts", "src/index.ts"]) {
